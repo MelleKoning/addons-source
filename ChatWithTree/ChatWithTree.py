@@ -322,6 +322,7 @@ class ChatWithTreeClass(Gramplet):
 
         message_label.set_halign(Gtk.Align.START)
         message_label.set_line_wrap(True)
+        message_label.set_selectable(True)
         message_label.set_max_width_chars(80)
         message_label.set_selectable(True)
         message_box.pack_start(message_label, True, True, 0)
