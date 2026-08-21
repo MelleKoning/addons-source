@@ -12,9 +12,9 @@ register(
     gramps_target_version="6.0",  # Specify the Gramps version you are targeting
     status=STABLE,
     audience=EVERYONE,
-    fname="ChatWithTreeMCP.py",  # Main file (class ChatWithTreeClass; rename class to ChatWithTreeMCPClass is still TODO)
+    fname="ChatWithTreeMCP.py",  # Main file (class ChatWithTreeMCPClass)
     # The 'gramplet' argument points to the class name in your main file
-    gramplet="ChatWithTreeClass",
+    gramplet="ChatWithTreeMCPClass",
     gramplet_title=_("Chat With Tree"),
     authors = ["Melle Koning"],
     authors_email = ["mellekoning@gmail.com"],

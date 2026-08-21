@@ -51,7 +51,7 @@ ONE_SECOND = 1000  # milliseconds
 # ==============================================================================
 # Gramplet Class Definition
 # ==============================================================================
-class ChatWithTreeClass(Gramplet):
+class ChatWithTreeMCPClass(Gramplet):
     """
     A simple interactive Gramplet that takes user input and provides a reply.
 
