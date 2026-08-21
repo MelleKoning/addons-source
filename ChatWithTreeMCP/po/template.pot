@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-09-22 21:36+0200\n"
+"POT-Creation-Date: 2026-08-21 17:41+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,41 +17,52 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ChatWithTree/ChatWithTree.py:103
-msgid "Database change detected"
+#: ChatWithTreeMCP/ChatWithTreeMCP.py:103
+#, python-brace-format
+msgid "Database change detected {active_db_name}."
 msgstr ""
 
-#: ChatWithTree/ChatWithTree.py:148
+#: ChatWithTreeMCP/ChatWithTreeMCP.py:149
 msgid "Type a message..."
 msgstr ""
 
-#: ChatWithTree/ChatWithTree.py:152
+#: ChatWithTreeMCP/ChatWithTreeMCP.py:153
 msgid "Send"
 msgstr ""
 
-#: ChatWithTree/ChatWithTree.py:159
-msgid "Chat with Tree initialized. Type /help for help."
+#: ChatWithTreeMCP/ChatWithTreeMCP.py:163
+msgid "Chat with Tree initialized.                 Type /help for help."
 msgstr ""
 
-#: ChatWithTree/ChatWithTree.py:314
+#: ChatWithTreeMCP/ChatWithTreeMCP.py:464
 msgid ""
-"The ChatWithTree addon is not yet initialized. Please reload Gramps or "
-"select a database."
+"The ChatWithTree addon is not yet initialized.                     Please "
+"reload Gramps or select a database."
 msgstr ""
 
-#: ChatWithTree/chatwithllm.py:78
-msgid "Tree: '{}'"
+#: ChatWithTreeMCP/ChatWithTreeMCP.py:473
+msgid "The chatbot is currently processing a query. Please wait."
 msgstr ""
 
-#: ChatWithTree/ChatWithTree.gpr.py:9
-msgid "Chat With Tree Interactive Addon"
+#: ChatWithTreeMCP/ChatWithTreeMCP.py:500
+msgid "An error occurred while processing your query."
 msgstr ""
 
-#: ChatWithTree/ChatWithTree.gpr.py:10
+#: ChatWithTreeMCP/ChatWithTreeMCP.gpr.py:9
+msgid "Chat With Tree Interactive Addon (MCP)"
+msgstr ""
+
+#: ChatWithTreeMCP/ChatWithTreeMCP.gpr.py:10
 msgid ""
-"Chat With Tree with the help of AI Large Language Model, needs litellm module"
+"Chat With Tree using an in-process MCP-style tool service and a Large "
+"Language Model. Uses only the Python standard library (no extra modules "
+"required)."
 msgstr ""
 
-#: ChatWithTree/ChatWithTree.gpr.py:18
+#: ChatWithTreeMCP/ChatWithTreeMCP.gpr.py:18
 msgid "Chat With Tree"
+msgstr ""
+
+#: ChatWithTreeMCP/chatwithllm.py:119
+msgid "Tree: '{}'"
 msgstr ""
