@@ -154,6 +154,10 @@ class ChatWithTreeMCPClass(Gramplet):
         self.process_button.connect("clicked", self.on_process_button_clicked)
         input_hbox.pack_start(self.process_button, False, False, 0)
 
+        self.settings_button = Gtk.Button(label=_("Settings"))
+        self.settings_button.connect("clicked", self.on_settings_button_clicked)
+        input_hbox.pack_start(self.settings_button, False, False, 0)
+
         vbox.pack_start(input_hbox, False, False, 0)
 
         # Add the initial message to the list box.
@@ -449,6 +453,19 @@ class ChatWithTreeMCPClass(Gramplet):
             self._add_message_row(exceptionReply)
 
             return GLib.SOURCE_REMOVE    # Stop the process on error
+
+    def on_settings_button_clicked(self, widget):
+        try:
+            logic = None
+            if self.chat_service is not None:
+                logic = getattr(self.chat_service, 'chat_logic', None)
+            if logic is not None:
+                logic._show_settings_dialog()
+            else:
+                # Fallback: basic info if chat not ready yet
+                pass
+        except Exception as e:
+            pass
 
     def on_process_button_clicked(self, widget):
         """

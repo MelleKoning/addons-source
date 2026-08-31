@@ -78,6 +78,22 @@ PROVIDER_REGISTRY: Dict[str, Dict[str, Any]] = {
         "url": "https://opencode.ai/zen/v1/chat/completions",
         "key_env": "OPENCODE_API_KEY",
     },
+    "gemini": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "key_env": "GEMINI_API_KEY",
+    },
+    "anthropic": {
+        "url": "https://api.anthropic.com/v1/chat/completions",
+        "key_env": "ANTHROPIC_API_KEY",
+    },
+    "groq": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "key_env": "GROQ_API_KEY",
+    },
+    "mistral": {
+        "url": "https://api.mistral.ai/v1/chat/completions",
+        "key_env": "MISTRAL_API_KEY",
+    },
 }
 
 
