@@ -242,9 +242,15 @@ class LLMClient:
                 raw = resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace") if exc.fp else ""
+            key = api_key if api_key is not None else self.api_key
+            # Diagnostic context for auth/debug errors (404/401/etc.)
+            diag = (
+                f"[url={url}; key_present={key is not None}; "
+                f"model={_strip_provider_prefix(model)}]"
+            )
             raise RuntimeError(
                 f"LLM endpoint returned HTTP {exc.code}: "
-                f"{detail or exc.reason}"
+                f"{detail or exc.reason} {diag}"
             ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
