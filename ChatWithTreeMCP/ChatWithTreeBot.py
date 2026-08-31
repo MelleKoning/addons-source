@@ -34,7 +34,7 @@ from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.display.place import displayer as place_displayer
 from gramps.gen.lib import Person
 from gramps.gen.simple import SimpleAccess
-from llm_client import LLMClient
+from llm_client import LLMClient, resolve_provider
 from mcp_utils import make_tool_schema, to_openai_tools
 
 LOG = logging.getLogger(".")
@@ -67,26 +67,28 @@ If the base URL already includes the full path, set it exactly, e.g.:
 "http://127.0.0.1:8000/v1/chat/completions"
 
 ChatWithTreeMCP talks to any OpenAI-compatible endpoint (Ollama,
-LM Studio, vLLM, OpenAI, …). A leading "provider/" in the model name is
-stripped before the request is sent, so the litellm-style names still work:
-  - "ollama/deepseek-r1:1.5b"  -> model "deepseek-r1:1.5b"
-  - "openai/gpt-4o-mini"       -> model "gpt-4o-mini"
-  - "gemini/gemini-2.5-flash"  -> model "gemini-2.5-flash"
+LM Studio, vLLM, OpenAI, OpenRouter, MoonshotAI, DeepSeek, …). A leading
+"provider/" in the model name selects the endpoint automatically and strips
+the prefix before sending:
+  - "ollama/deepseek-r1:1.5b"  -> endpoint: localhost:11434, model: "deepseek-r1:1.5b"
+  - "openrouter/moonshotai/kimi-k2:free" -> endpoint: openrouter.ai,
+  model: "moonshotai/kimi-k2:free"
+  - "openai/gpt-4o-mini"       -> endpoint: openai.com, model: "gpt-4o-mini"
+  - "deepseek/deepseek-chat"  -> endpoint: deepseek.com, model: "deepseek-chat"
+
+Supported providers (auto-routed): ollama (local), openrouter,
+moonshotai, openai, deepseek. `GRAMPS_AI_MODEL_URL` remains as an
+advanced fallback for unknown/custom endpoints.
 
 You can find a list of ollama models here:
 https://ollama.com/library/
 
-### Optional
-
-If your OpenAI-compatible endpoint requires authentication, provide a bearer
-token via OPENAI_API_KEY:
-
-```
-export OPENAI_API_KEY="sk-..."
-```
-
-(Local Ollama needs no key. Commercial gateways typically map their own key
-to OPENAI_API_KEY.)
+### Provider API keys (set via environment)
+- `OPENROUTER_API_KEY` — for openrouter
+- `MOONSHOT_API_KEY` — for moonshotai
+- `OPENAI_API_KEY` — for openai
+- `DEEPSEEK_API_KEY` — for deepseek
+- (Local Ollama needs no key.)
 
 Commands:
 /help - show this help text
@@ -206,15 +208,20 @@ class ChatBot(IChatLogic):
             {"role": "system", "content": SYSTEM_PROMPT}]
 
     def command_handle_help(self, message: str) -> Iterator[ReplyItem]:
-        '''
-        returns the helptext to the user including
-        the current model name and model url
-        '''
+        url, key, model = resolve_provider(GRAMPS_AI_MODEL_NAME or "")
+        model_name = GRAMPS_AI_MODEL_NAME or ""
+        if "/" in model_name:
+            provider = model_name.split("/", 1)[0]
+        elif not model_name:
+            provider = "custom"
+        else:
+            provider = "unknown"
         yield self._reply(
             YieldType.FINAL,
             f"{HELP_TEXT}"
-            f"\nGRAMPS_AI_MODEL_NAME: {GRAMPS_AI_MODEL_NAME}"
-            f"\nGRAMPS_AI_MODEL_URL: {GRAMPS_AI_MODEL_URL}")
+            f"\nCurrent model: {GRAMPS_AI_MODEL_NAME or '(not set)'}"
+            f"\nResolved provider: {provider}"
+            f"\nResolved endpoint: {url}")
 
     def command_handle_history(self, message: str) -> Iterator[ReplyItem]:
         '''
@@ -310,14 +317,15 @@ class ChatBot(IChatLogic):
         tool_definitions: Optional[List[Dict[str, str]]],
         seed: int,
     ) -> Any:
-        # GRAMPS_AI_MODEL_NAME is read at call-time so the /setmodel command
-        # can switch models at runtime (as the previous litellm path did).
+        url, key, model = resolve_provider(GRAMPS_AI_MODEL_NAME or "")
         response = self.llm_client.completion(
-            model=GRAMPS_AI_MODEL_NAME,
+            model=model,
             messages=all_messages,
             tools=tool_definitions,
             tool_choice="auto" if tool_definitions is not None else None,
             seed=seed,
+            model_url=url,
+            api_key=key,
         )
         return response
 

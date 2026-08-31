@@ -53,6 +53,33 @@ from typing import Any, Dict, List, Optional
 # http://localhost:11434/v1).
 DEFAULT_MODEL_URL = "http://localhost:11434"
 
+PROVIDER_REGISTRY: Dict[str, Dict[str, Any]] = {
+    "ollama": {
+        "url": "http://localhost:11434/v1/chat/completions",
+        "key_env": None,
+    },
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "key_env": "OPENROUTER_API_KEY",
+    },
+    "moonshotai": {
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "key_env": "MOONSHOT_API_KEY",
+    },
+    "openai": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "key_env": "OPENAI_API_KEY",
+    },
+    "deepseek": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "key_env": "DEEPSEEK_API_KEY",
+    },
+    "opencode": {
+        "url": "https://opencode.ai/zen/v1/chat/completions",
+        "key_env": "OPENCODE_API_KEY",
+    },
+}
+
 
 def _strip_provider_prefix(model_name: str) -> str:
     """Drop a leading ``provider/`` segment (e.g. ``ollama/foo`` -> ``foo``).
@@ -65,6 +92,24 @@ def _strip_provider_prefix(model_name: str) -> str:
     if "/" in model_name:
         return model_name.split("/", 1)[1]
     return model_name
+
+
+def resolve_provider(model_name: str) -> tuple:
+    """Resolve provider prefix to (url, api_key, stripped_model_name)."""
+    if "/" in model_name:
+        provider = model_name.split("/", 1)[0]
+        stripped = _strip_provider_prefix(model_name)
+    else:
+        provider = None
+        stripped = model_name
+    if provider and provider in PROVIDER_REGISTRY:
+        entry = PROVIDER_REGISTRY[provider]
+        url = entry["url"]
+        key = os.environ.get(entry["key_env"]) if entry["key_env"] else None
+        return url, key, stripped
+    # Fallback: no prefix or unknown provider
+    base = os.environ.get("GRAMPS_AI_MODEL_URL", DEFAULT_MODEL_URL)
+    return base, os.environ.get("OPENAI_API_KEY"), model_name
 
 
 def _endpoint_url(model_url: str) -> str:
@@ -156,13 +201,15 @@ class LLMClient:
         tool_choice: Optional[str] = None,
         seed: Optional[int] = None,
         stream: bool = False,
+        model_url: Optional[str] = None,
+        api_key: Optional[str] = None,
     ) -> CompletionResponse:
         """POST a chat-completion request and return a ``CompletionResponse``.
 
         ``model`` is taken per-call (not captured) so the ``/setmodel`` command
         can switch models at runtime, as the previous litellm path did.
         """
-        url = _endpoint_url(self.model_url)
+        url = _endpoint_url(model_url if model_url is not None else self.model_url)
         payload: Dict[str, Any] = {
             "model": _strip_provider_prefix(model),
             "messages": messages,
@@ -179,11 +226,16 @@ class LLMClient:
         request = urllib.request.Request(url, data=body, method="POST")
         request.add_header("Content-Type", "application/json")
         request.add_header(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        )
+        request.add_header(
             "Accept",
             "text/event-stream" if stream else "application/json",
         )
-        if self.api_key:
-            request.add_header("Authorization", f"Bearer {self.api_key}")
+        key = api_key if api_key is not None else self.api_key
+        if key:
+            request.add_header("Authorization", f"Bearer {key}")
 
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as resp:
