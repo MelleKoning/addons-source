@@ -32,3 +32,31 @@ type `/help` in the chat to get rudimentary help
 `.pre-commit-config.yaml` — Pre-commit hook configuration (e.g., formatting, linting) to maintain code quality.
 
 To execute run `pre-commit run -a` in the `/ChatWithTreeMCP` folder.
+
+---
+
+## Testing the plugin (backend, no GTK/UI)
+
+Two Python environments are available for testing different Gramps versions:
+
+- `chat_env` — Gramps 6.0.8 (database schema 18–21). Use with DBs matching that version (e.g. `GRAMPS_DB_NAME=Koning`).
+- `chat_env_61` — Gramps 6.1.x (database schema 22, e.g. `"chatty"`). Create from the `maintenance/gramps61` branch (`python3.12 -m venv chat_env_61`, install `gramps` from that branch).
+
+Run the integration test with either environment. The Gramps DB-loading plugins required by
+`test_chat_service.py` are only available when the correct virtualenv is active; do not mix
+environments. From `/ChatAddon` root:
+
+```bash
+# 6.0 test (nice-to-have)
+source chat_env/bin/activate
+export GRAMPS_DB_NAME="KoningGDriveBackup"   # or any DB matching schema 21
+python -m pytest addons-source/ChatWithTreeMCP/tests/test_chat_service.py
+
+# 6.1 / current work (chat_env_61 must be active)
+source chat_env_61/bin/activate
+export GRAMPS_DB_NAME="chatty"   # schema version 22 DB
+export OPENCODE_API_KEY="<key>"
+python -m pytest addons-source/ChatWithTreeMCP/tests/test_chat_service.py
+```
+
+`GRAMPS_DB_LOCATION` is optional; if omitted, the Gramps library (`CONFIGMAN`) provides the database path. The test requires a real LLM endpoint (`OPENCODE_API_KEY` for the default model).
