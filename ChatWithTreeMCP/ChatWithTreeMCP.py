@@ -22,6 +22,7 @@ import logging
 import re
 from typing import Optional
 
+import ChatWithTreeConfig
 import gi
 from AsyncChatService import AsyncChatService
 from chatwithllm import ChatResponse, ReplyItem, YieldType
@@ -153,6 +154,10 @@ class ChatWithTreeMCPClass(Gramplet):
         self.process_button = Gtk.Button(label=_("Send"))
         self.process_button.connect("clicked", self.on_process_button_clicked)
         input_hbox.pack_start(self.process_button, False, False, 0)
+
+        self.settings_button = Gtk.Button(label=_("Settings"))
+        self.settings_button.connect("clicked", self.on_settings_button_clicked)
+        input_hbox.pack_start(self.settings_button, False, False, 0)
 
         vbox.pack_start(input_hbox, False, False, 0)
 
@@ -449,6 +454,98 @@ class ChatWithTreeMCPClass(Gramplet):
             self._add_message_row(exceptionReply)
 
             return GLib.SOURCE_REMOVE    # Stop the process on error
+
+    def on_settings_button_clicked(self, widget):
+        try:
+            self._show_settings_dialog()
+        except Exception as e:
+            LOG.error(f"Settings dialog failed: {e}")
+
+    def _show_settings_dialog(self):
+        try:
+            import gi
+            gi.require_version("Gtk", "3.0")
+            from gi.repository import Gtk
+            bot_cfg = ChatWithTreeConfig._CONFIG
+            settings_items = list(ChatWithTreeConfig.SETTINGS_MAP.items())
+
+            dialog = Gtk.Dialog(title="ChatWithTreeMCP Settings",
+                                buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                         Gtk.STOCK_OK, Gtk.ResponseType.OK))
+            dialog.set_default_size(650, 500)
+            box = dialog.get_content_area()
+            box.set_spacing(6)
+            entries = {}
+            grid = Gtk.Grid(column_spacing=6, row_spacing=6)
+            entries = {}
+            for i, (key, (label_text, default_val)) in enumerate(settings_items):
+                lbl = Gtk.Label(label=label_text)
+                lbl.set_halign(Gtk.Align.END)
+                lbl.set_xalign(1)
+                # Dropdown for loop_limit; Entry for others
+                if key == "loop_limit":
+                    combo = Gtk.ComboBoxText()
+                    for val in ["6", "8", "10", "12"]:
+                        combo.append_text(val)
+                    combo.set_active(0)
+                    current = (str(
+                        ChatWithTreeConfig.load_setting(key)
+                    ) if (
+                        ChatWithTreeConfig.load_setting(key)
+                    ) is not None else str(default_val))
+                    for idx, val in enumerate(["6", "8", "10", "12"]):
+                        if val == str(current):
+                            combo.set_active(idx)
+                    entries[key] = combo
+                    grid.attach(lbl, 0, i, 1, 1)
+                    grid.attach(combo, 1, i, 1, 1)
+                else:
+                    ent = Gtk.Entry()
+                    ent.set_hexpand(True)
+                    current = (str(
+                        ChatWithTreeConfig.load_setting(key)
+                    ) if ChatWithTreeConfig.load_setting(key) is not None else "")
+                    ent.set_text(str(current))
+                    entries[key] = ent
+                    grid.attach(lbl, 0, i, 1, 1)
+                    grid.attach(ent, 1, i, 1, 1)
+                    # Mask API key fields; add show/hide toggle
+                    if key.endswith("_api_key"):
+                        ent.set_visibility(False)
+                        show_btn = Gtk.CheckButton(label="Show")
+                        show_btn.connect(
+                            "toggled",
+                            lambda btn, e=ent: e.set_visibility(
+                                btn.get_active()
+                            ),
+                        )
+                        grid.attach(show_btn, 2, i, 1, 1)
+            box.pack_start(grid, False, False, 0)
+            box.show_all()
+            resp = dialog.run()
+            if resp == Gtk.ResponseType.OK:
+                try:
+                    if bot_cfg is not None:
+                        for k, ent in entries.items():
+                            if isinstance(ent, Gtk.ComboBoxText):
+                                val = ent.get_active_text()
+                            else:
+                                val = ent.get_text()
+                            try:
+                                ChatWithTreeConfig.save_setting(k, val)
+                            except Exception:
+                                pass
+                    # Shared module handles persistence
+                    # (manager + file fallback via _cfg)
+                    # Variables removed; backend reads _cfg() live
+                except Exception as e:
+                    LOG.error(f"[Settings] Save failed: {e}")
+            dialog.destroy()
+        except Exception as e:
+            import logging
+            import traceback
+            logging.getLogger(".").error(f"[Settings] Dialog failed: {e}")
+            traceback.print_exc()
 
     def on_process_button_clicked(self, widget):
         """

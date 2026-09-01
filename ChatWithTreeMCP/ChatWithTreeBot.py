@@ -20,7 +20,6 @@
 import inspect
 import json
 import logging
-import os
 import re
 import sys
 import time
@@ -28,13 +27,14 @@ from typing import Any, Dict, Iterator, List, Optional, Pattern, Tuple
 
 from chatwithllm import (ChatResponse, EntityMetadata, IChatLogic, ReplyItem,
                          YieldType)
+from ChatWithTreeConfig import load_setting, load_key_for_provider
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db.utils import open_database
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.display.place import displayer as place_displayer
 from gramps.gen.lib import Person
 from gramps.gen.simple import SimpleAccess
-from llm_client import LLMClient, resolve_provider
+from llm_client import PROVIDER_REGISTRY, LLMClient, resolve_provider
 from mcp_utils import make_tool_schema, to_openai_tools
 
 LOG = logging.getLogger(".")
@@ -46,62 +46,24 @@ _ = glocale.translation.gettext
 # interface that we use in the gramplet
 
 HELP_TEXT = """
-ChatWithTree uses the following OS environment variables:
+ChatWithTreeMCP uses Gramps CONFIGMAN settings.
 
-```
-export GRAMPS_AI_MODEL_NAME="<ENTER MODEL NAME HERE>"
-```
-
-This is always needed. Examples: "ollama/deepseek-r1:1.5b",
- "openai/gpt-4o-mini", "gemini/gemini-2.5-flash"
-
-```
-export GRAMPS_AI_MODEL_URL="<ENTER URL HERE>"
-```
-
-This is needed if running your own LLM server. Example: "http://127.0.0.1:8000"
-The URL must be the base of an OpenAI-compatible Chat Completions endpoint;
-the addon appends /v1/chat/completions automatically.
-
-If the base URL already includes the full path, set it exactly, e.g.:
-"http://127.0.0.1:8000/v1/chat/completions"
-
-ChatWithTreeMCP talks to any OpenAI-compatible endpoint (Ollama,
-LM Studio, vLLM, OpenAI, OpenRouter, MoonshotAI, DeepSeek, …). A leading
-"provider/" in the model name selects the endpoint automatically and strips
-the prefix before sending:
-  - "ollama/deepseek-r1:1.5b"  -> endpoint: localhost:11434, model: "deepseek-r1:1.5b"
-  - "openrouter/moonshotai/kimi-k2:free" -> endpoint: openrouter.ai,
-  model: "moonshotai/kimi-k2:free"
-  - "openai/gpt-4o-mini"       -> endpoint: openai.com, model: "gpt-4o-mini"
-  - "deepseek/deepseek-chat"  -> endpoint: deepseek.com, model: "deepseek-chat"
+Example model names (need provider prefix):
+  ollama/gemma4, openrouter/moonshotai/kimi-k2:free,
+  openai/gpt-4o-mini, deepseek/deepseek-chat, gemini/gemini-2.5-flash,
+  anthropic/claude-3-sonnet, groq/llama3-8b, mistral/mistral-small
 
 Supported providers (auto-routed): ollama (local), openrouter,
-moonshotai, openai, deepseek. `GRAMPS_AI_MODEL_URL` remains as an
-advanced fallback for unknown/custom endpoints.
+moonshotai, openai, deepseek. `load_setting("model_url")`
+For local Ollama provide the URL (default `http://localhost:11434`).
 
 You can find a list of ollama models here:
 https://ollama.com/library/
 
-### Provider API keys (set via environment)
-- `OPENROUTER_API_KEY` — for openrouter
-- `MOONSHOT_API_KEY` — for moonshotai
-- `OPENAI_API_KEY` — for openai
-- `DEEPSEEK_API_KEY` — for deepseek
-- (Local Ollama needs no key.)
-
 Commands:
 /help - show this help text
 /history - show the full chat history in JSON format
-/setmodel <model_name> - set the model name to use for the LLM
-/setlimit <number> - set the tool-calling loop limit (6-20)
 
-The <model_name> depends on the LLM provider you are using.
-Usually the model name can be found on the provider's website.
-
-Examples:
-/setmodel ollama/deepseek-r1:1.5b
-/setmodel openrouter/moonshotai/kimi-k2:free
 """
 
 SYSTEM_PROMPT = """
@@ -131,23 +93,21 @@ user's query as soon as you have sufficient information.
     and clearly state what you found and what information you were unable to obtain.
 """
 
-GRAMPS_AI_MODEL_NAME = os.environ.get("GRAMPS_AI_MODEL_NAME")
-GRAMPS_AI_MODEL_URL = os.environ.get("GRAMPS_AI_MODEL_URL", "http://localhost:11434")
-
-
 # ===
 # ChatBot class gets initialized when a Gramps database
 # is selected (on db change)
 # ===
+
+
 class ChatBot(IChatLogic):
     def __init__(self, database_name: str):
         self.database_name = database_name
         # Dependency-free, OpenAI-compatible LLM client (replaces litellm).
         self.llm_client = LLMClient(
-            model_url=GRAMPS_AI_MODEL_URL,
-            api_key=os.environ.get("OPENAI_API_KEY"),
+            model_url=load_setting("model_url"),
+            api_key="",
         )
-        self.limit_loop = 6  # Default tool-calling loop limit
+        self.limit_loop = int(load_setting("loop_limit") or 6)  # Read from CONFIGMAN
         # The collector for the current conversation turn
         self.current_entities: dict[str, EntityMetadata] = {}
         self.reset_chat_history()
@@ -178,8 +138,6 @@ class ChatBot(IChatLogic):
         self.command_handlers = {
             "/help": self.command_handle_help,
             "/history": self.command_handle_history,
-            "/setmodel": self.command_handle_setmodel,
-            "/setlimit": self.command_handle_setlimit,
         }
 
     def open_database_for_chat(self) -> None:
@@ -208,8 +166,10 @@ class ChatBot(IChatLogic):
             {"role": "system", "content": SYSTEM_PROMPT}]
 
     def command_handle_help(self, message: str) -> Iterator[ReplyItem]:
-        url, key, model = resolve_provider(GRAMPS_AI_MODEL_NAME or "")
-        model_name = GRAMPS_AI_MODEL_NAME or ""
+        url, _, stripped_model = resolve_provider(
+            (load_setting("model_name") or "")
+        )
+        model_name = load_setting("model_name") or ""
         if "/" in model_name:
             provider = model_name.split("/", 1)[0]
         elif not model_name:
@@ -219,7 +179,7 @@ class ChatBot(IChatLogic):
         yield self._reply(
             YieldType.FINAL,
             f"{HELP_TEXT}"
-            f"\nCurrent model: {GRAMPS_AI_MODEL_NAME or '(not set)'}"
+            f'\nCurrent model: {load_setting("model_name") or "(not set)"}'
             f"\nResolved provider: {provider}"
             f"\nResolved endpoint: {url}")
 
@@ -230,53 +190,6 @@ class ChatBot(IChatLogic):
         yield self._reply(
             YieldType.FINAL,
             json.dumps(self.messages, indent=4, sort_keys=True))
-
-    def command_handle_setmodel(self, message: str) -> Iterator[ReplyItem]:
-        '''
-        sets the model name to use for the LLM
-        usage: /setmodel <model_name>
-        Example: /setmodel ollama/deepseek-r1:1.5b
-        '''
-        global GRAMPS_AI_MODEL_NAME
-        parts = message.split(' ', 1)
-        if len(parts) != 2 or not parts[1].strip():
-            yield self._reply(YieldType.FINAL, "Usage: /setmodel <model_name>")
-            return
-        new_model_name = parts[1].strip()
-        GRAMPS_AI_MODEL_NAME = new_model_name
-        self.reset_chat_history()   # Reset history when model changes
-        yield self._reply(YieldType.FINAL, f"Model name set to: {GRAMPS_AI_MODEL_NAME}")
-
-    def command_handle_setlimit(self, message: str) -> Iterator[ReplyItem]:
-        '''
-        sets the tool-calling loop limit.
-        usage: /setlimit <number>
-        Example: /setlimit 10
-        '''
-        parts = message.split(' ', 1)
-        if len(parts) != 2 or not parts[1].strip():
-            yield self._reply(
-                YieldType.FINAL,
-                "Usage: /setlimit <number between 6 and 20>")
-            return
-        try:
-            new_limit = int(parts[1].strip())
-            if 6 <= new_limit <= 20:
-                self.limit_loop = new_limit
-                yield self._reply(
-                        YieldType.FINAL,
-                        f"Tool-calling loop limit set to: {self.limit_loop}"
-                      )
-            else:
-                yield self._reply(
-                        YieldType.ERROR,
-                        "Error: Limit must be an integer between 6 and 20."
-                      )
-        except ValueError:
-            yield self._reply(
-                    YieldType.ERROR,
-                    "Error: Invalid number provided. Please enter an integer."
-                  )
 
     # The implementation of the IChatLogic interface
     def get_reply(self, message: str) -> Iterator[ReplyItem]:
@@ -302,14 +215,14 @@ class ChatBot(IChatLogic):
                 # Handle unknown command
                 yield self._reply(YieldType.ERROR, f"Unknown command: {command_key}")
             return    # prevent command to be sent to LLM
-        if GRAMPS_AI_MODEL_NAME:
+        if load_setting("model_name"):
             # yield from returns all yields from the calling func
             yield from self.get_chatbot_response(message)
         else:
-            yield self._reply(YieldType.ERROR,
-                              "Error: ensure to set GRAMPS_AI_MODEL_NAME\
-                              and GRAMPS_AI_MODEL_URL environment variables.\
-                              or use the /setmodel <model_name> command.")
+            yield self._reply(
+                YieldType.ERROR,
+                "Error: ensure to set model_name in ChatWithTreeConfig settings. "
+                "Or use the /setmodel <model_name> command.")
 
     def _llm_complete(
         self,
@@ -317,23 +230,53 @@ class ChatBot(IChatLogic):
         tool_definitions: Optional[List[Dict[str, str]]],
         seed: int,
     ) -> Any:
-        url, key, model = resolve_provider(GRAMPS_AI_MODEL_NAME or "")
+        # Uses instance variables resolved once per turn by resolve_model_config()
         response = self.llm_client.completion(
-            model=model,
+            model=self.resolved_model,
             messages=all_messages,
             tools=tool_definitions,
             tool_choice="auto" if tool_definitions is not None else None,
             seed=seed,
-            model_url=url,
-            api_key=key,
+            stream=True,
+            model_url=self.resolved_url,
+            api_key=self.resolved_key,
         )
         return response
+
+    def resolve_model_config(self) -> None:
+        """Resolve model/provider/key/URL once per turn from shared config."""
+        model_name = load_setting("model_name") or ""
+        url, _, stripped_model = resolve_provider(model_name)
+        provider = model_name.split("/", 1)[0] if "/" in model_name else None
+        provider = provider or ("custom" if model_name else None)
+        registry_entry = (
+            PROVIDER_REGISTRY.get(provider, {})
+            if provider and provider in PROVIDER_REGISTRY else {}
+        )
+        cfg_key = registry_entry.get("key_settings")
+        key = load_setting(cfg_key.replace("settings.", "")) if cfg_key and cfg_key.startswith("settings.") else load_key_for_provider(provider) if cfg_key else None
+        if not key and provider:
+            # Fallback to provider-specific settings key directly
+            key = load_key_for_provider(provider)
+        if not key:
+            # No provider prefix or unknown provider: no key required
+            key = ""
+        self.resolved_model = stripped_model or model_name or ""
+        self.resolved_url = url
+        self.resolved_key = key or ""
+        self.resolved_provider = provider or "unknown"
+        # Refresh LLM client with resolved config
+        self.llm_client = LLMClient(
+            model_url=self.resolved_url,
+            api_key=self.resolved_key,
+        )
 
     def get_chatbot_response(
         self,
         user_input: str,
         seed: int = 42,
     ) -> Iterator[ReplyItem]:
+        self.resolve_model_config()
         self.messages.append({"role": "user", "content": user_input})
         yield from self._llm_loop(seed)
 
@@ -379,7 +322,8 @@ class ChatBot(IChatLogic):
 
         found_final_result = False
 
-        for count in range(self.limit_loop):  # Iterates up to the configured limit
+        loop_limit = int(load_setting("loop_limit") or 6)
+        for count in range(loop_limit):  # Read live from CONFIGMAN
             time.sleep(1)  # Add a one-second delay to prevent overwhelming the AI remote
 
             messages_for_llm = list(self.messages)
@@ -387,9 +331,23 @@ class ChatBot(IChatLogic):
             # Send all tools on each attempt
             tools_to_send = to_openai_tools(self.tool_definitions)
 
+            last_msg = messages_for_llm[-1] if messages_for_llm else {}
+            yield self._reply(
+                YieldType.TOOL_CALL,
+                f"\n-> sending {str(last_msg)[:60]} to "
+                f"{self.resolved_provider}:{self.resolved_model}",
+            )
+            start_time = time.time()
             response = self._llm_complete(messages_for_llm, tools_to_send, seed)
+            duration = time.time() - start_time
 
             if not response.choices:
+                # Show first 45 chars of whatever the response holds
+                raw_preview = str(getattr(response, '_data', response))[:45]
+                yield self._reply(
+                    YieldType.TOOL_CALL,
+                    f"\n<- response empty: {raw_preview} ({duration:.1f}s)",
+                )
                 # logger.debug("No response choices available from the AI model.")
                 found_final_result = True
                 break
@@ -399,6 +357,13 @@ class ChatBot(IChatLogic):
             self.messages.append(msg.to_dict())
 
             if msg.tool_calls:
+                content_preview = msg.content or ""
+                preview_text = content_preview[:45] if content_preview else ""
+                yield self._reply(
+                    YieldType.TOOL_CALL,
+                    f"\n<- received tool call from {self.resolved_provider}:"
+                    f"{self.resolved_model} | {preview_text} ({duration:.1f}s)",
+                )
                 # sometimes there is no content returned in the msg.content
                 # if there is then usually an explained strategy what the
                 # model will do to achieve the final result
@@ -409,11 +374,21 @@ class ChatBot(IChatLogic):
                 elif msg.content and len(msg.content) > 3:
                     yield self._reply(YieldType.PARTIAL, msg.content)
                 for tool_call in msg["tool_calls"]:
-                    yield self._reply(YieldType.TOOL_CALL, tool_call['function']['name'])
+                    args_str = json.dumps(tool_call['function']['arguments'])
+                    yield self._reply(
+                        YieldType.TOOL_CALL,
+                        f" {tool_call['function']['name']}({args_str}) ",
+                    )
                     self.execute_tool(tool_call)
             else:
                 final_response = response.choices[0].message.content
                 found_final_result = True
+                if final_response and final_response.strip():
+                    yield self._reply(
+                        YieldType.TOOL_CALL,
+                        f"\n<- received from {self.resolved_provider}:"
+                        f"{self.resolved_model} ({duration:.1f}s)",
+                    )
                 break
 
         # If the loop completed without being interrupted (no break),
