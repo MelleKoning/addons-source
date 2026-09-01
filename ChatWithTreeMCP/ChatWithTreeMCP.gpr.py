@@ -8,7 +8,7 @@ register(
     id="ChatWithTreeMCP",  # Unique ID for your addon
     name=_("Chat With Tree Interactive Addon (MCP)"),  # Display name in Gramps, translatable
     description=_("Chat With Tree using an in-process MCP-style tool service and a Large Language Model. Uses only the Python standard library (no extra modules required)."),
-    version = '0.1.4',
+    version = '0.1.5',
     gramps_target_version="6.1",  # Specify the Gramps version you are targeting
     status=STABLE,
     audience=EVERYONE,
