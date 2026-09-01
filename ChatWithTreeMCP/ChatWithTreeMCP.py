@@ -19,9 +19,11 @@
 #
 # ChatWithTree.py
 import logging
+import os
 import re
 from typing import Optional
 
+import ChatWithTreeConfig
 import gi
 from AsyncChatService import AsyncChatService
 from chatwithllm import ChatResponse, ReplyItem, YieldType
@@ -456,16 +458,93 @@ class ChatWithTreeMCPClass(Gramplet):
 
     def on_settings_button_clicked(self, widget):
         try:
-            logic = None
-            if self.chat_service is not None:
-                logic = getattr(self.chat_service, 'chat_logic', None)
-            if logic is not None:
-                logic._show_settings_dialog()
-            else:
-                # Fallback: basic info if chat not ready yet
-                pass
+            self._show_settings_dialog()
         except Exception as e:
-            pass
+            LOG.error(f"Settings dialog failed: {e}")
+
+    def _show_settings_dialog(self):
+        try:
+            import gi
+            gi.require_version("Gtk", "3.0")
+            from gi.repository import Gtk
+            bot_cfg = ChatWithTreeConfig._CONFIG
+
+            # Helper to read current value from the shared config module
+            def _read_current(k):
+                return ChatWithTreeConfig._cfg(k, "")
+            dialog = Gtk.Dialog(title="ChatWithTreeMCP Settings",
+                                buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                         Gtk.STOCK_OK, Gtk.ResponseType.OK))
+            box = dialog.get_content_area()
+            box.set_spacing(6)
+            entries = {}
+            grid = Gtk.Grid(column_spacing=6, row_spacing=6)
+            entries = {}
+            for i, (label_text, key) in enumerate([
+                ("Model (with prefix, e.g. openrouter/...)", "model_name"),
+                ("Endpoint URL (optional override)", "model_url"),
+                ("Loop limit", "loop_limit"),
+                ("OpenRouter API Key", "openrouter_api_key"),
+                ("OpenCode API Key", "opencode_api_key"),
+                ("OpenAI API Key", "openai_api_key"),
+                ("DeepSeek API Key", "deepseek_api_key"),
+                ("MoonshotAI API Key", "moonshotai_api_key"),
+                ("Gemini API Key", "gemini_api_key"),
+                ("Anthropic API Key", "anthropic_api_key"),
+                ("Groq API Key", "groq_api_key"),
+                ("Mistral API Key", "mistral_api_key"),
+            ]):
+                lbl = Gtk.Label(label=label_text)
+                lbl.set_halign(Gtk.Align.END)
+                lbl.set_xalign(1)
+                ent = Gtk.Entry()
+                ent.set_hexpand(True)
+                current = _read_current(key) or ""
+                ent.set_text(current)
+                entries[key] = ent
+                grid.attach(lbl, 0, i, 1, 1)
+                grid.attach(ent, 1, i, 1, 1)
+            box.pack_start(grid, False, False, 0)
+            box.show_all()
+            resp = dialog.run()
+            if resp == Gtk.ResponseType.OK:
+                try:
+                    if bot_cfg is not None:
+                        for k, ent in entries.items():
+                            val = ent.get_text()
+                            if k == "loop_limit":
+                                val = int(val) if val.isdigit() else 6
+                            try:
+                                bot_cfg.set(k, val)
+                            except Exception:
+                                pass
+                        bot_cfg.save()
+                        try:
+                            bot_cfg.load()
+                        except Exception:
+                            pass
+                    # Refresh module-level variables from shared config
+                    model_name = ChatWithTreeConfig._cfg("model_name")
+                    model_url = ChatWithTreeConfig._cfg("model_url")
+                    ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME = (
+                        model_name or os.environ.get("GRAMPS_AI_MODEL_NAME")
+                    )
+                    ChatWithTreeConfig.GRAMPS_AI_MODEL_URL = (
+                        model_url or os.environ.get(
+                            "GRAMPS_AI_MODEL_URL",
+                            "http://localhost:11434",
+                        )
+                    )
+                    # Shared module handles persistence
+                    # (manager + file fallback via _cfg)
+                except Exception as e:
+                    LOG.error(f"[Settings] Save failed: {e}")
+            dialog.destroy()
+        except Exception as e:
+            import logging
+            import traceback
+            logging.getLogger(".").error(f"[Settings] Dialog failed: {e}")
+            traceback.print_exc()
 
     def on_process_button_clicked(self, widget):
         """

@@ -79,7 +79,10 @@ PROVIDER_REGISTRY: Dict[str, Dict[str, Any]] = {
         "key_env": "OPENCODE_API_KEY",
     },
     "gemini": {
-        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "url": (
+            "https://generativelanguage.googleapis.com"
+            "/v1beta/openai/chat/completions"
+        ),
         "key_env": "GEMINI_API_KEY",
     },
     "anthropic": {

@@ -1,5 +1,7 @@
 """Test CONFIGMAN setting storage for ChatWithTreeMCP (isolated, no dialog)."""
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -19,3 +21,4 @@ def test_configman_roundtrip():
         # Fallback: verify _CONFIG mechanism exists without full gramps
         import ChatWithTreeBot as bot
         assert bot._CONFIG is not None or bot._cfg("model_name") is not None
+        assert str(exc)  # reference exc to suppress F841

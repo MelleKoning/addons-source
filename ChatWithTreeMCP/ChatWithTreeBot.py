@@ -26,15 +26,17 @@ import sys
 import time
 from typing import Any, Dict, Iterator, List, Optional, Pattern, Tuple
 
+import ChatWithTreeConfig
 from chatwithllm import (ChatResponse, EntityMetadata, IChatLogic, ReplyItem,
                          YieldType)
+from ChatWithTreeConfig import _CONFIG, _cfg
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db.utils import open_database
 from gramps.gen.display.name import displayer as name_displayer
 from gramps.gen.display.place import displayer as place_displayer
 from gramps.gen.lib import Person
 from gramps.gen.simple import SimpleAccess
-from llm_client import LLMClient, PROVIDER_REGISTRY, resolve_provider
+from llm_client import PROVIDER_REGISTRY, LLMClient, resolve_provider
 from mcp_utils import make_tool_schema, to_openai_tools
 
 LOG = logging.getLogger(".")
@@ -46,7 +48,7 @@ _ = glocale.translation.gettext
 # interface that we use in the gramplet
 
 HELP_TEXT = """
-ChatWithTreeMCP uses Gramps CONFIGMAN settings (Edit → Preferences or /settings).
+ChatWithTreeMCP uses Gramps CONFIGMAN settings (Edit → Preferences).
 Key fields: model_name, model_url, loop_limit, and per-provider API keys:
   openrouter_api_key, opencode_api_key, openai_api_key, deepseek_api_key,
   moonshotai_api_key, gemini_api_key, anthropic_api_key, groq_api_key,
@@ -59,7 +61,7 @@ Example model names (with provider prefix):
   anthropic/claude-3-sonnet, groq/llama3-8b, mistral/mistral-small
 
 Supported providers (auto-routed): ollama (local), openrouter,
-moonshotai, openai, deepseek. `GRAMPS_AI_MODEL_URL` remains as an
+moonshotai, openai, deepseek. `ChatWithTreeConfig.GRAMPS_AI_MODEL_URL` remains as an
 advanced fallback for unknown/custom endpoints.
 
 You can find a list of ollama models here:
@@ -113,79 +115,18 @@ user's query as soon as you have sufficient information.
     and clearly state what you found and what information you were unable to obtain.
 """
 
-from gramps.gen.config import config
-
-try:
-    from gramps.gen.config import config
-    _CONFIG = config.register_manager("ChatWithTreeMCP")
-    _CONFIG.register("model_name", "ollama/deepseek-r1:1.5b")
-    _CONFIG.register("model_url", "http://localhost:11434")
-    _CONFIG.register("loop_limit", 6)
-    _CONFIG.register("openrouter_api_key", "")
-    _CONFIG.register("opencode_api_key", "")
-    _CONFIG.register("openai_api_key", "")
-    _CONFIG.register("deepseek_api_key", "")
-    _CONFIG.register("moonshotai_api_key", "")
-    _CONFIG.register("gemini_api_key", "")
-    _CONFIG.register("anthropic_api_key", "")
-    _CONFIG.register("groq_api_key", "")
-    _CONFIG.register("mistral_api_key", "")
-    _CONFIG.load()
-except Exception:
-    _CONFIG = None
-
-def _cfg(key, fallback=""):
-    try:
-        import os, configparser
-        ini_path = os.path.join(os.path.dirname(__file__), "ChatWithTreeMCP.ini")
-        if os.path.exists(ini_path):
-            cp = configparser.ConfigParser()
-            cp.read(ini_path)
-            if cp.has_option("ChatWithTreeMCP", key):
-                return cp.get("ChatWithTreeMCP", key)
-    except Exception:
-        pass
-    try:
-        if _CONFIG is not None:
-            return _CONFIG.get(key)
-    except Exception:
-        pass
-    try:
-        from gramps.gen.config import config
-        return config.get(f"ChatWithTreeMCP.{key}")
-    except Exception:
-        pass
-    # Portable fallback: try manager, then gramps config (plugin writes to its own path)
-    try:
-        if _CONFIG is not None:
-            return _CONFIG.get(key)
-    except Exception:
-        pass
-    try:
-        from gramps.gen.config import config
-        return config.get(f"ChatWithTreeMCP.{key}")
-    except Exception:
-        pass
-    return fallback
-
-GRAMPS_AI_MODEL_NAME = (
-    _cfg("model_name") or os.environ.get("GRAMPS_AI_MODEL_NAME")
-)
-GRAMPS_AI_MODEL_URL = (
-    _cfg("model_url") or os.environ.get("GRAMPS_AI_MODEL_URL", "http://localhost:11434")
-)
-
-
 # ===
 # ChatBot class gets initialized when a Gramps database
 # is selected (on db change)
 # ===
+
+
 class ChatBot(IChatLogic):
     def __init__(self, database_name: str):
         self.database_name = database_name
         # Dependency-free, OpenAI-compatible LLM client (replaces litellm).
         self.llm_client = LLMClient(
-            model_url=GRAMPS_AI_MODEL_URL,
+            model_url=ChatWithTreeConfig.GRAMPS_AI_MODEL_URL,
             api_key=os.environ.get("OPENAI_API_KEY"),
         )
         self.limit_loop = 6  # Default tool-calling loop limit
@@ -248,140 +189,11 @@ class ChatBot(IChatLogic):
         self.messages: List[Dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT}]
 
-    def _show_settings_dialog(self):
-        global _CONFIG
-        try:
-            import gi
-            gi.require_version("Gtk", "3.0")
-            from gi.repository import Gtk
-            # Ensure manager initialized (may be None after import failure)
-            if _CONFIG is None:
-                try:
-                    from gramps.gen.config import config
-                    _CONFIG = config.register_manager("ChatWithTreeMCP")
-                    _CONFIG.load()
-                except Exception as e:
-                    pass
-            # Ensure manager loaded; fall back to plugin INI file if needed
-            if _CONFIG is not None:
-                try:
-                    _CONFIG.load()
-                except Exception:
-                    pass
-            # Helper to read current value from manager or plugin file
-            def _read_current(k):
-                try:
-                    if _CONFIG is not None:
-                        v = _CONFIG.get(k)
-                        if v is not None:
-                            return str(v)
-                except Exception:
-                    pass
-                try:
-                    import configparser, os
-                    p = os.path.join(os.path.dirname(__file__), "ChatWithTreeMCP.ini")
-                    cp = configparser.ConfigParser()
-                    cp.read(p)
-                    if cp.has_option("ChatWithTreeMCP", k):
-                        return cp.get("ChatWithTreeMCP", k)
-                except Exception:
-                    pass
-                return ""
-            dialog = Gtk.Dialog(title="ChatWithTreeMCP Settings",
-                                buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                                         Gtk.STOCK_OK, Gtk.ResponseType.OK))
-            box = dialog.get_content_area()
-            box.set_spacing(6)
-            entries = {}
-            grid = Gtk.Grid(column_spacing=6, row_spacing=6)
-            entries = {}
-            for i, (label_text, key) in enumerate([
-                ("Model (with prefix, e.g. openrouter/...)", "model_name"),
-                ("Endpoint URL (optional override)", "model_url"),
-                ("Loop limit", "loop_limit"),
-                ("OpenRouter API Key", "openrouter_api_key"),
-                ("OpenCode API Key", "opencode_api_key"),
-                ("OpenAI API Key", "openai_api_key"),
-                ("DeepSeek API Key", "deepseek_api_key"),
-                ("MoonshotAI API Key", "moonshotai_api_key"),
-                ("Gemini API Key", "gemini_api_key"),
-                ("Anthropic API Key", "anthropic_api_key"),
-                ("Groq API Key", "groq_api_key"),
-                ("Mistral API Key", "mistral_api_key"),
-            ]):
-                lbl = Gtk.Label(label=label_text)
-                lbl.set_halign(Gtk.Align.END)
-                lbl.set_xalign(1)
-                ent = Gtk.Entry()
-                ent.set_hexpand(True)
-                current = _read_current(key)
-                if not current:
-                    try:
-                        from gramps.gen.config import config
-                        current = str(config.get(f"ChatWithTreeMCP.{key}") or "")
-                    except Exception:
-                        pass
-                ent.set_text(current)
-                entries[key] = ent
-                grid.attach(lbl, 0, i, 1, 1)
-                grid.attach(ent, 1, i, 1, 1)
-            box.pack_start(grid, False, False, 0)
-            box.show_all()
-            resp = dialog.run()
-            if resp == Gtk.ResponseType.OK:
-                try:
-                    if _CONFIG is not None:
-                        for k, ent in entries.items():
-                            val = ent.get_text()
-                            if k == "loop_limit":
-                                val = int(val) if val.isdigit() else 6
-                            try:
-                                _CONFIG.set(k, val)
-                            except Exception:
-                                pass  # fallback
-                        _CONFIG.save()
-                        try:
-                            _CONFIG.load()
-                        except Exception:
-                            pass
-                        if _CONFIG is None:
-                            try:
-                                from gramps.gen.config import config
-                                _CONFIG = config.register_manager("ChatWithTreeMCP")
-                                _CONFIG.load()
-                            except Exception:
-                                pass
-                        # Direct-plugin file save (portable, no manager dependency)
-                        try:
-                            import os
-                            ini_path = os.path.join(os.path.dirname(__file__), "ChatWithTreeMCP.ini")
-                            with open(ini_path, "w") as f:
-                                f.write("[ChatWithTreeMCP]\n")
-                                for k, ent in entries.items():
-                                    f.write(f"{k} = {ent.get_text()}\n")
-                        except Exception:
-                            pass
-                        global GRAMPS_AI_MODEL_NAME, GRAMPS_AI_MODEL_URL
-                        GRAMPS_AI_MODEL_NAME = _cfg("model_name") or os.environ.get("GRAMPS_AI_MODEL_NAME")
-                        GRAMPS_AI_MODEL_URL = _cfg("model_url") or os.environ.get("GRAMPS_AI_MODEL_URL", "http://localhost:11434")
-                except Exception as e:
-                    pass
-            dialog.destroy()
-        except Exception as e:
-            import traceback, logging
-            logging.getLogger(".").error(f"[Settings] Dialog failed: {e}")
-            traceback.print_exc()
-
-    def _command_settings(self, message: str) -> Iterator[ReplyItem]:
-        self._show_settings_dialog()
-        yield self._reply(YieldType.FINAL, "Settings saved.")
-
     def command_handle_help(self, message: str) -> Iterator[ReplyItem]:
         url, _, stripped_model = resolve_provider(
             (_cfg("model_name") or os.environ.get("GRAMPS_AI_MODEL_NAME") or "")
         )
-        model = stripped_model
-        model_name = GRAMPS_AI_MODEL_NAME or ""
+        model_name = ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME or ""
         if "/" in model_name:
             provider = model_name.split("/", 1)[0]
         elif not model_name:
@@ -391,7 +203,7 @@ class ChatBot(IChatLogic):
         yield self._reply(
             YieldType.FINAL,
             f"{HELP_TEXT}"
-            f"\nCurrent model: {GRAMPS_AI_MODEL_NAME or '(not set)'}"
+            f"\nCurrent model: {ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME or '(not set)'}"
             f"\nResolved provider: {provider}"
             f"\nResolved endpoint: {url}")
 
@@ -409,13 +221,17 @@ class ChatBot(IChatLogic):
         usage: /setmodel <model_name>
         Example: /setmodel ollama/deepseek-r1:1.5b
         '''
-        global GRAMPS_AI_MODEL_NAME
         parts = message.split(' ', 1)
         if len(parts) != 2 or not parts[1].strip():
             yield self._reply(YieldType.FINAL, "Usage: /setmodel <model_name>")
             return
         new_model_name = parts[1].strip()
-        GRAMPS_AI_MODEL_NAME = new_model_name
+        ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME = new_model_name
+        url_fallback = os.environ.get(
+            "GRAMPS_AI_MODEL_URL", "http://localhost:11434")
+        ChatWithTreeConfig.GRAMPS_AI_MODEL_URL = (
+            ChatWithTreeConfig._cfg("model_url") or url_fallback
+        )
         try:
             if _CONFIG is not None:
                 _CONFIG.set("model_name", new_model_name)
@@ -423,7 +239,9 @@ class ChatBot(IChatLogic):
         except Exception:
             pass
         self.reset_chat_history()   # Reset history when model changes
-        yield self._reply(YieldType.FINAL, f"Model name set to: {GRAMPS_AI_MODEL_NAME}")
+        yield self._reply(
+            YieldType.FINAL,
+            f"Model name set to: {ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME}")
 
     def command_handle_setlimit(self, message: str) -> Iterator[ReplyItem]:
         '''
@@ -480,14 +298,15 @@ class ChatBot(IChatLogic):
                 # Handle unknown command
                 yield self._reply(YieldType.ERROR, f"Unknown command: {command_key}")
             return    # prevent command to be sent to LLM
-        if GRAMPS_AI_MODEL_NAME:
+        if ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME:
             # yield from returns all yields from the calling func
             yield from self.get_chatbot_response(message)
         else:
-            yield self._reply(YieldType.ERROR,
-                              "Error: ensure to set GRAMPS_AI_MODEL_NAME\
-                              and GRAMPS_AI_MODEL_URL environment variables.\
-                              or use the /setmodel <model_name> command.")
+            yield self._reply(
+                YieldType.ERROR,
+                "Error: ensure to set GRAMPS_AI_MODEL_NAME "
+                "and GRAMPS_AI_MODEL_URL environment variables. "
+                "Or use the /setmodel <model_name> command.")
 
     def _llm_complete(
         self,
@@ -495,9 +314,9 @@ class ChatBot(IChatLogic):
         tool_definitions: Optional[List[Dict[str, str]]],
         seed: int,
     ) -> Any:
-        url, _, model = resolve_provider(GRAMPS_AI_MODEL_NAME or "")
+        url, _, model = resolve_provider(ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME or "")
         # Per-provider API keys from CONFIGMAN (Windows env fallback)
-        model_name = GRAMPS_AI_MODEL_NAME or ""
+        model_name = ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME or ""
         provider = model_name.split("/", 1)[0] if "/" in model_name else None
         key_map = {
             "openrouter": "openrouter_api_key",
@@ -512,11 +331,18 @@ class ChatBot(IChatLogic):
         }
         if provider and provider in key_map:
             cfg_key = key_map[provider]
-            key = (_cfg(cfg_key) or os.environ.get(
-                PROVIDER_REGISTRY.get(provider, {}).get("key_env") if provider in PROVIDER_REGISTRY else None
-            ))
+            registry_entry = (
+                PROVIDER_REGISTRY.get(provider, {})
+                if provider in PROVIDER_REGISTRY else {}
+            )
+            key_env_name = registry_entry.get("key_env")
+            key = (_cfg(cfg_key) or os.environ.get(key_env_name))
             if not key:
-                key_env = PROVIDER_REGISTRY.get(provider, {}).get("key_env") if provider in PROVIDER_REGISTRY else None
+                registry_entry = (
+                    PROVIDER_REGISTRY.get(provider, {})
+                    if provider in PROVIDER_REGISTRY else {}
+                )
+                key_env = registry_entry.get("key_env")
                 if key_env:
                     key = os.environ.get(key_env)
         else:
