@@ -19,7 +19,6 @@
 #
 # ChatWithTree.py
 import logging
-import os
 import re
 from typing import Optional
 
@@ -468,42 +467,59 @@ class ChatWithTreeMCPClass(Gramplet):
             gi.require_version("Gtk", "3.0")
             from gi.repository import Gtk
             bot_cfg = ChatWithTreeConfig._CONFIG
+            settings_items = list(ChatWithTreeConfig.SETTINGS_MAP.items())
 
-            # Helper to read current value from the shared config module
-            def _read_current(k):
-                return ChatWithTreeConfig._cfg(k, "")
             dialog = Gtk.Dialog(title="ChatWithTreeMCP Settings",
                                 buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                          Gtk.STOCK_OK, Gtk.ResponseType.OK))
+            dialog.set_default_size(650, 500)
             box = dialog.get_content_area()
             box.set_spacing(6)
             entries = {}
             grid = Gtk.Grid(column_spacing=6, row_spacing=6)
             entries = {}
-            for i, (label_text, key) in enumerate([
-                ("Model (with prefix, e.g. openrouter/...)", "model_name"),
-                ("Endpoint URL (optional override)", "model_url"),
-                ("Loop limit", "loop_limit"),
-                ("OpenRouter API Key", "openrouter_api_key"),
-                ("OpenCode API Key", "opencode_api_key"),
-                ("OpenAI API Key", "openai_api_key"),
-                ("DeepSeek API Key", "deepseek_api_key"),
-                ("MoonshotAI API Key", "moonshotai_api_key"),
-                ("Gemini API Key", "gemini_api_key"),
-                ("Anthropic API Key", "anthropic_api_key"),
-                ("Groq API Key", "groq_api_key"),
-                ("Mistral API Key", "mistral_api_key"),
-            ]):
+            for i, (key, (label_text, default_val)) in enumerate(settings_items):
                 lbl = Gtk.Label(label=label_text)
                 lbl.set_halign(Gtk.Align.END)
                 lbl.set_xalign(1)
-                ent = Gtk.Entry()
-                ent.set_hexpand(True)
-                current = _read_current(key) or ""
-                ent.set_text(current)
-                entries[key] = ent
-                grid.attach(lbl, 0, i, 1, 1)
-                grid.attach(ent, 1, i, 1, 1)
+                # Dropdown for loop_limit; Entry for others
+                if key == "loop_limit":
+                    combo = Gtk.ComboBoxText()
+                    for val in ["6", "8", "10", "12"]:
+                        combo.append_text(val)
+                    combo.set_active(0)
+                    current = (str(
+                        ChatWithTreeConfig.load_setting(key)
+                    ) if (
+                        ChatWithTreeConfig.load_setting(key)
+                    ) is not None else str(default_val))
+                    for idx, val in enumerate(["6", "8", "10", "12"]):
+                        if val == str(current):
+                            combo.set_active(idx)
+                    entries[key] = combo
+                    grid.attach(lbl, 0, i, 1, 1)
+                    grid.attach(combo, 1, i, 1, 1)
+                else:
+                    ent = Gtk.Entry()
+                    ent.set_hexpand(True)
+                    current = (str(
+                        ChatWithTreeConfig.load_setting(key)
+                    ) if ChatWithTreeConfig.load_setting(key) is not None else "")
+                    ent.set_text(str(current))
+                    entries[key] = ent
+                    grid.attach(lbl, 0, i, 1, 1)
+                    grid.attach(ent, 1, i, 1, 1)
+                    # Mask API key fields; add show/hide toggle
+                    if key.endswith("_api_key"):
+                        ent.set_visibility(False)
+                        show_btn = Gtk.CheckButton(label="Show")
+                        show_btn.connect(
+                            "toggled",
+                            lambda btn, e=ent: e.set_visibility(
+                                btn.get_active()
+                            ),
+                        )
+                        grid.attach(show_btn, 2, i, 1, 1)
             box.pack_start(grid, False, False, 0)
             box.show_all()
             resp = dialog.run()
@@ -511,32 +527,17 @@ class ChatWithTreeMCPClass(Gramplet):
                 try:
                     if bot_cfg is not None:
                         for k, ent in entries.items():
-                            val = ent.get_text()
-                            if k == "loop_limit":
-                                val = int(val) if val.isdigit() else 6
+                            if isinstance(ent, Gtk.ComboBoxText):
+                                val = ent.get_active_text()
+                            else:
+                                val = ent.get_text()
                             try:
-                                bot_cfg.set(k, val)
+                                ChatWithTreeConfig.save_setting(k, val)
                             except Exception:
                                 pass
-                        bot_cfg.save()
-                        try:
-                            bot_cfg.load()
-                        except Exception:
-                            pass
-                    # Refresh module-level variables from shared config
-                    model_name = ChatWithTreeConfig._cfg("model_name")
-                    model_url = ChatWithTreeConfig._cfg("model_url")
-                    ChatWithTreeConfig.GRAMPS_AI_MODEL_NAME = (
-                        model_name or os.environ.get("GRAMPS_AI_MODEL_NAME")
-                    )
-                    ChatWithTreeConfig.GRAMPS_AI_MODEL_URL = (
-                        model_url or os.environ.get(
-                            "GRAMPS_AI_MODEL_URL",
-                            "http://localhost:11434",
-                        )
-                    )
                     # Shared module handles persistence
                     # (manager + file fallback via _cfg)
+                    # Variables removed; backend reads _cfg() live
                 except Exception as e:
                     LOG.error(f"[Settings] Save failed: {e}")
             dialog.destroy()

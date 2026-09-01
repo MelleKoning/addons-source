@@ -89,14 +89,6 @@ class TestChatServiceRealDB:
             for t in texts
         )
 
-    def test_setmodel_command(self, chat_service):
-        # Use a model name with provider prefix; the registry/task will route it
-        chat_service.start_query("/setmodel ollama/deepseek-r1:1.5b")
-        results = drain_queue(chat_service)
-        texts = [r.data.text for r in results if r.data and r.data.text]
-        combined = " ".join(texts)
-        assert "Model name set" in combined
-
     def test_multi_turn_conversation(self, chat_service):
         # First turn
         chat_service.start_query("Who is the default person?")

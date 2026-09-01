@@ -43,7 +43,6 @@ Both attribute and item access are supported, and missing fields return
 code keeps working unchanged.
 """
 import json
-import os
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
@@ -56,46 +55,46 @@ DEFAULT_MODEL_URL = "http://localhost:11434"
 PROVIDER_REGISTRY: Dict[str, Dict[str, Any]] = {
     "ollama": {
         "url": "http://localhost:11434/v1/chat/completions",
-        "key_env": None,
+        "key_settings": None,
     },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
-        "key_env": "OPENROUTER_API_KEY",
+        "key_settings": "openrouter_api_key",
     },
     "moonshotai": {
         "url": "https://api.moonshot.ai/v1/chat/completions",
-        "key_env": "MOONSHOT_API_KEY",
+        "key_settings": "moonshotai_api_key",
+    },
+    "opencode": {
+        "url": "https://code.openrouter.ai/v1/chat/completions",
+        "key_settings": "opencode_api_key",
     },
     "openai": {
         "url": "https://api.openai.com/v1/chat/completions",
-        "key_env": "OPENAI_API_KEY",
+        "key_settings": "openai_api_key",
     },
     "deepseek": {
         "url": "https://api.deepseek.com/chat/completions",
-        "key_env": "DEEPSEEK_API_KEY",
-    },
-    "opencode": {
-        "url": "https://opencode.ai/zen/v1/chat/completions",
-        "key_env": "OPENCODE_API_KEY",
+        "key_settings": "deepseek_api_key",
     },
     "gemini": {
         "url": (
             "https://generativelanguage.googleapis.com"
             "/v1beta/openai/chat/completions"
         ),
-        "key_env": "GEMINI_API_KEY",
+        "key_settings": "gemini_api_key",
     },
     "anthropic": {
-        "url": "https://api.anthropic.com/v1/chat/completions",
-        "key_env": "ANTHROPIC_API_KEY",
+        "url": "https://api.anthropic.com/v1/messages",
+        "key_settings": "anthropic_api_key",
     },
     "groq": {
         "url": "https://api.groq.com/openai/v1/chat/completions",
-        "key_env": "GROQ_API_KEY",
+        "key_settings": "groq_api_key",
     },
     "mistral": {
         "url": "https://api.mistral.ai/v1/chat/completions",
-        "key_env": "MISTRAL_API_KEY",
+        "key_settings": "mistral_api_key",
     },
 }
 
@@ -124,11 +123,13 @@ def resolve_provider(model_name: str) -> tuple:
     if provider and provider in PROVIDER_REGISTRY:
         entry = PROVIDER_REGISTRY[provider]
         url = entry["url"]
-        key = os.environ.get(entry["key_env"]) if entry["key_env"] else None
-        return url, key, stripped
-    # Fallback: no prefix or unknown provider
-    base = os.environ.get("GRAMPS_AI_MODEL_URL", DEFAULT_MODEL_URL)
-    return base, os.environ.get("OPENAI_API_KEY"), model_name
+        return url, None, stripped
+    # Fallback: confine custom model_url to local ollama / custom
+    # (no hosted provider override)
+    if provider == "ollama" or provider is None:
+        return DEFAULT_MODEL_URL, None, model_name
+    # Unknown hosted provider (e.g. typo): fall back to default local endpoint
+    return DEFAULT_MODEL_URL, None, model_name
 
 
 def _endpoint_url(model_url: str) -> str:
@@ -202,14 +203,10 @@ class LLMClient:
         api_key: Optional[str] = None,
         timeout: float = 120.0,
     ):
-        # The base URL of an OpenAI-compatible endpoint. Honours
-        # GRAMPS_AI_MODEL_URL; falls back to the local Ollama default.
-        self.model_url = model_url or os.environ.get(
-            "GRAMPS_AI_MODEL_URL", DEFAULT_MODEL_URL
-        )
-        # Only attach an Authorization header when a key is present
-        # (e.g. for OpenAI/LM Studio gateways; local Ollama needs none).
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        # Uses the URL/key explicitly provided (resolved by ChatWithTreeBot
+        # from ChatWithTreeConfig settings / provider registry).
+        self.model_url = model_url if model_url is not None else DEFAULT_MODEL_URL
+        self.api_key = api_key or ""
         self.timeout = timeout
 
     def completion(
