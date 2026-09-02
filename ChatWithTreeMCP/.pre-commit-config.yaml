@@ -18,12 +18,12 @@ repos:
     - id: detect-private-key
     - id: mixed-line-ending
       args: [--fix=lf]
-- repo: https://github.com/pycqa/isort
-  rev: 5.13.2
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.16.5
   hooks:
-  -   id: isort
-- repo: https://github.com/pycqa/flake8
-  rev: 7.0.0
-  hooks:
-  -   id: flake8
-      args  : [--max-line-length=89]
+  # sort imports and linter
+  - id: ruff
+    args: [--fix, --line-length=88]
+  # formatter
+  - id: ruff-format
+    args: [--line-length=88]

@@ -23,11 +23,12 @@ import logging
 import re
 import sys
 import time
-from typing import Any, Dict, Iterator, List, Optional, Pattern, Tuple
+from collections.abc import Iterator
+from re import Pattern
+from typing import Any
 
-from chatwithllm import (ChatResponse, EntityMetadata, IChatLogic, ReplyItem,
-                         YieldType)
-from ChatWithTreeConfig import load_setting, load_key_for_provider
+from chatwithllm import ChatResponse, EntityMetadata, IChatLogic, ReplyItem, YieldType
+from ChatWithTreeConfig import load_key_for_provider, load_setting
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db.utils import open_database
 from gramps.gen.display.name import displayer as name_displayer
@@ -143,32 +144,30 @@ class ChatBot(IChatLogic):
     def open_database_for_chat(self) -> None:
         self.db = open_database(self.database_name, force_unlock=True)
         if self.db is None:
-            raise Exception(f"Unable to open database {self.database_name}")
+            raise RuntimeError(f"Unable to open database {self.database_name}")
         self.sa = SimpleAccess(self.db)
 
     def _reply(self, y_type: YieldType, text: str, metadata=None) -> ReplyItem:
         """Helper to ensure we always yield a valid NamedTuple ReplyItem."""
-        return ReplyItem(type=y_type,
-                         data=ChatResponse(text=text, metadata=metadata or []))
+        return ReplyItem(
+            type=y_type, data=ChatResponse(text=text, metadata=metadata or [])
+        )
 
     def _register_entity(self, handle: str, name: str, etype: str):
         """Adds an entity to the current session if not already present."""
         if handle not in self.current_entities:
             self.current_entities[handle] = EntityMetadata(
-                handle=handle,
-                name=name,
-                entity_type=etype
+                handle=handle, name=name, entity_type=etype
             )
 
     def reset_chat_history(self) -> None:
         """Resets the chat message history to its initial state."""
-        self.messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT}]
+        self.messages: list[dict[str, Any]] = [
+            {"role": "system", "content": SYSTEM_PROMPT}
+        ]
 
     def command_handle_help(self, message: str) -> Iterator[ReplyItem]:
-        url, _, stripped_model = resolve_provider(
-            (load_setting("model_name") or "")
-        )
+        url, _, _ = resolve_provider(load_setting("model_name") or "")
         model_name = load_setting("model_name") or ""
         if "/" in model_name:
             provider = model_name.split("/", 1)[0]
@@ -179,17 +178,18 @@ class ChatBot(IChatLogic):
         yield self._reply(
             YieldType.FINAL,
             f"{HELP_TEXT}"
-            f'\nCurrent model: {load_setting("model_name") or "(not set)"}'
+            f"\nCurrent model: {load_setting('model_name') or '(not set)'}"
             f"\nResolved provider: {provider}"
-            f"\nResolved endpoint: {url}")
+            f"\nResolved endpoint: {url}",
+        )
 
     def command_handle_history(self, message: str) -> Iterator[ReplyItem]:
-        '''
+        """
         returns the full chat history to the user
-        '''
+        """
         yield self._reply(
-            YieldType.FINAL,
-            json.dumps(self.messages, indent=4, sort_keys=True))
+            YieldType.FINAL, json.dumps(self.messages, indent=4, sort_keys=True)
+        )
 
     # The implementation of the IChatLogic interface
     def get_reply(self, message: str) -> Iterator[ReplyItem]:
@@ -201,9 +201,9 @@ class ChatBot(IChatLogic):
         # Reset the collector for the new prompt
         self.current_entities = {}
 
-        if message.startswith('/'):
+        if message.startswith("/"):
             # Split the message into command and arguments (if any)
-            command_key = message.split(' ', 1)[0]
+            command_key = message.split(" ", 1)[0]
 
             # Look up the command in the dictionary
             commandhandler = self.command_handlers.get(command_key)
@@ -214,7 +214,7 @@ class ChatBot(IChatLogic):
             else:
                 # Handle unknown command
                 yield self._reply(YieldType.ERROR, f"Unknown command: {command_key}")
-            return    # prevent command to be sent to LLM
+            return  # prevent command to be sent to LLM
         if load_setting("model_name"):
             # yield from returns all yields from the calling func
             yield from self.get_chatbot_response(message)
@@ -222,12 +222,13 @@ class ChatBot(IChatLogic):
             yield self._reply(
                 YieldType.ERROR,
                 "Error: ensure to set model_name in ChatWithTreeConfig settings. "
-                "Or use the /setmodel <model_name> command.")
+                "Or use the /setmodel <model_name> command.",
+            )
 
     def _llm_complete(
         self,
-        all_messages: List[Dict[str, str]],
-        tool_definitions: Optional[List[Dict[str, str]]],
+        all_messages: list[dict[str, str]],
+        tool_definitions: list[dict[str, str]] | None,
         seed: int,
     ) -> Any:
         # Uses instance variables resolved once per turn by resolve_model_config()
@@ -247,25 +248,31 @@ class ChatBot(IChatLogic):
         """Resolve model/provider/key/URL once per turn from shared config."""
         model_name = load_setting("model_name") or ""
         url, _, stripped_model = resolve_provider(model_name)
+
+        # What is the provider?r
         provider = model_name.split("/", 1)[0] if "/" in model_name else None
         provider = provider or ("custom" if model_name else None)
-        registry_entry = (
-            PROVIDER_REGISTRY.get(provider, {})
-            if provider and provider in PROVIDER_REGISTRY else {}
-        )
+
+        # Get llm provider registry data
+        registry_entry = PROVIDER_REGISTRY.get(provider, {}) if provider else {}
         cfg_key = registry_entry.get("key_settings")
-        key = load_setting(cfg_key.replace("settings.", "")) if cfg_key and cfg_key.startswith("settings.") else load_key_for_provider(provider) if cfg_key else None
+
+        # Determine API key for the provider
+        key = None
+        if cfg_key and cfg_key.startswith("settings."):
+            key = load_setting(cfg_key.replace("settings.", ""))
+
+        # When no config found use fallback
         if not key and provider:
-            # Fallback to provider-specific settings key directly
             key = load_key_for_provider(provider)
-        if not key:
-            # No provider prefix or unknown provider: no key required
-            key = ""
+
+        # Store found values
         self.resolved_model = stripped_model or model_name or ""
         self.resolved_url = url
         self.resolved_key = key or ""
         self.resolved_provider = provider or "unknown"
-        # Refresh LLM client with resolved config
+
+        # Refresh LLM client with this config
         self.llm_client = LLMClient(
             model_url=self.resolved_url,
             api_key=self.resolved_key,
@@ -304,7 +311,7 @@ class ChatBot(IChatLogic):
             else:
                 content_for_llm = str(tool_result)
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             content_for_llm = f"Error in calling tool `{tool_name}`: {exc}"
 
         self.messages.append(
@@ -316,114 +323,106 @@ class ChatBot(IChatLogic):
         )
 
     def _llm_loop(self, seed: int) -> Iterator[ReplyItem]:
-        # Tool-calling loop
+        """Executes the tool-calling loop consistently using SDK object notation."""
         final_response = "I was unable to find the desired information."
         sys.stdout.flush()
-
         found_final_result = False
 
         loop_limit = int(load_setting("loop_limit") or 6)
-        for count in range(loop_limit):  # Read live from CONFIGMAN
-            time.sleep(1)  # Add a one-second delay to prevent overwhelming the AI remote
+        for count in range(loop_limit):
+            time.sleep(1)  # Throttle requests
 
             messages_for_llm = list(self.messages)
-            # Convert canonical MCP schemas to the OpenAI/litellm tools format
-            # Send all tools on each attempt
             tools_to_send = to_openai_tools(self.tool_definitions)
 
+            # 1. Log outgoing request
             last_msg = messages_for_llm[-1] if messages_for_llm else {}
             yield self._reply(
                 YieldType.TOOL_CALL,
-                f"\n-> sending {str(last_msg)[:60]} to "
-                f"{self.resolved_provider}:{self.resolved_model}",
+                f"\n-> sending {str(last_msg)[:60]}...",
             )
+
+            # 2. Fetch and validate SDK response
             start_time = time.time()
             response = self._llm_complete(messages_for_llm, tools_to_send, seed)
             duration = time.time() - start_time
 
-            if not response.choices:
-                # Show first 45 chars of whatever the response holds
-                raw_preview = str(getattr(response, '_data', response))[:45]
+            if not response or not response.choices:
+                raw_preview = str(getattr(response, "_data", response))[:45]
                 yield self._reply(
                     YieldType.TOOL_CALL,
                     f"\n<- response empty: {raw_preview} ({duration:.1f}s)",
                 )
-                # logger.debug("No response choices available from the AI model.")
                 found_final_result = True
                 break
 
+            # 3. Extract the message object and persist it
             msg = response.choices[0].message
-            # Add the actual message to the persistent history
             self.messages.append(msg.to_dict())
 
+            # 4. Handle Tool Calls cleanly via Object Notation
             if msg.tool_calls:
-                content_preview = msg.content or ""
-                preview_text = content_preview[:45] if content_preview else ""
                 yield self._reply(
                     YieldType.TOOL_CALL,
-                    f"\n<- received tool call from {self.resolved_provider}:"
-                    f"{self.resolved_model} | {preview_text} ({duration:.1f}s)",
+                    f"\n<- received tool call(s) {msg.tool_calls} ({duration:.1f}s)",
                 )
-                # sometimes there is no content returned in the msg.content
-                # if there is then usually an explained strategy what the
-                # model will do to achieve the final result
-                if (hasattr(msg, 'reasoning_content') and
-                        msg.reasoning_content and
-                        len(msg.reasoning_content) > 3):
-                    yield self._reply(YieldType.PARTIAL, msg.reasoning_content)
+
+                # Safely handle thinking/reasoning blocks vs strategic text
+                reasoning = getattr(msg, "reasoning_content", None)
+                if reasoning and len(reasoning) > 3:
+                    yield self._reply(YieldType.PARTIAL, reasoning)
                 elif msg.content and len(msg.content) > 3:
                     yield self._reply(YieldType.PARTIAL, msg.content)
+
+                # Clean iteration over the tool call models
                 for tool_call in msg["tool_calls"]:
-                    args_str = json.dumps(tool_call['function']['arguments'])
+                    args = tool_call["function"]["arguments"]
+                    args_str = args if isinstance(args, str) else json.dumps(args)
+
                     yield self._reply(
                         YieldType.TOOL_CALL,
                         f" {tool_call['function']['name']}({args_str}) ",
                     )
                     self.execute_tool(tool_call)
+
+            # 5. Handle Final Assistant Answer
             else:
-                final_response = response.choices[0].message.content
+                final_response = msg.content
                 found_final_result = True
                 if final_response and final_response.strip():
                     yield self._reply(
                         YieldType.TOOL_CALL,
-                        f"\n<- received from {self.resolved_provider}:"
-                        f"{self.resolved_model} ({duration:.1f}s)",
+                        f"\n<- received final answer ({duration:.1f}s)",
                     )
                 break
 
-        # If the loop completed without being interrupted (no break),
-        # force a final response.
+        # 6. Fallback loop termination logic
         if not found_final_result:
-            # Append a temporary system message to guide the final response
-            # Start from the current message history
             messages_for_llm = list(self.messages)
             messages_for_llm.append(
                 {
                     "role": "system",
-                    "content": "You have reached the maximum number of "
-                    "tool-calling attempts. Based on the information gathered "
-                    "so far, provide the most complete answer you can, or "
-                    "clearly state what information you could not obtain. Do "
-                    "not attempt to call any more tools."
+                    "content": "You have reached the maximum number of tool-calling attempts.                 Based on the information gathered so far, provide the most complete answer you can, or clearly state what information you could not obtain. Do not attempt to call any more tools.",
                 }
             )
-            response = self._llm_complete(messages_for_llm, None, seed)  # No tools!
-            if response.choices:
+            response = self._llm_complete(messages_for_llm, None, seed)
+            if response and response.choices:
                 final_response = response.choices[0].message.content
 
-        # Ensure final_response is set in case of edge cases
+        # Fallback to last message text if final_response is missing/empty
         if (
-            final_response == "I was unable to find the desired information." and
-            self.messages and self.messages[-1].get("content")
-           ):
-            final_response = self.messages[-1]["content"]
+            final_response == "I was unable to find the desired information."
+            and self.messages
+        ):
+            last_saved = self.messages[-1]
+            if isinstance(last_saved, dict) and last_saved.get("content"):
+                final_response = last_saved["content"]
 
-        # Convert collected dict values to a list for the metadata field
         metadata_list = list(self.current_entities.values())
         yield self._reply(YieldType.FINAL, final_response, metadata=metadata_list)
 
     # Tools:
-    def get_person(self, person_handle: str) -> Dict[str, Any]:
+    def get_person(self, person_handle: str) -> dict[str, Any]:
         """
         Given a person's handle, get the data dictionary of that person,
         including notes.
@@ -436,11 +435,11 @@ class ChatBot(IChatLogic):
         # The idea is that the LLM can use the 'full_name' field
         # to refer to the person in answers
         name1 = name_displayer.display(person_obj)
-        data['full_name'] = name1
+        data["full_name"] = name1
         self._register_entity(
             handle=person_handle,
             name=name1,
-            etype=Person.__name__    # "Person"
+            etype=Person.__name__,  # "Person"
         )
         notes = []
         for note_handle in person_obj.get_note_list():
@@ -448,11 +447,11 @@ class ChatBot(IChatLogic):
             notes.append(note_obj.get())
 
         if notes:
-            data['notes'] = notes
+            data["notes"] = notes
 
         return data
 
-    def get_mother_of_person(self, person_handle: str) -> Dict[str, Any]:
+    def get_mother_of_person(self, person_handle: str) -> dict[str, Any]:
         """
         Given a person's handle, return their mother's data dictionary.
         The person_handle to pass to this func is the "person_handle"
@@ -463,7 +462,7 @@ class ChatBot(IChatLogic):
         mother_obj = self.sa.mother(person_obj)
         return self.get_person(mother_obj.handle)
 
-    def get_family(self, family_handle: str) -> Dict[str, Any]:
+    def get_family(self, family_handle: str) -> dict[str, Any]:
         """
         Get the data of a family given the family handle in the argument.
         * family handles are different from a person handle.
@@ -488,11 +487,11 @@ class ChatBot(IChatLogic):
             notes.append(note_obj.get())
 
         if notes:
-            family_data['notes'] = notes
+            family_data["notes"] = notes
 
         return family_data
 
-    def start_point(self) -> Dict[str, Any]:
+    def start_point(self) -> dict[str, Any]:
         """
         Get the start point of the genealogy tree, i.e., the default person.
         This tool does not take any "arguments".
@@ -514,9 +513,8 @@ class ChatBot(IChatLogic):
         return None
 
     def get_children_of_person(
-            self,
-            person_handle: str
-            ) -> List[Tuple[str, Dict[str, Any]]]:
+        self, person_handle: str
+    ) -> list[tuple[str, dict[str, Any]]]:
         """
         Get a list of children handles and their details for a person's main family,
         given a person's handle.
@@ -535,12 +533,14 @@ class ChatBot(IChatLogic):
             child_handles = [handle.ref for handle in family.get_child_ref_list()]
 
             for handle in child_handles:
-                person_data = self.get_person(handle)  # Use the existing get_person tool
+                person_data = self.get_person(
+                    handle
+                )  # Use the existing get_person tool
                 children_data.append((handle, person_data))
 
         return children_data
 
-    def get_father_of_person(self, person_handle: str) -> Dict[str, Any]:
+    def get_father_of_person(self, person_handle: str) -> dict[str, Any]:
         """
         Given a person's handle, return their father's data dictionary.
         The "person_handle" to pass to this func is the "person_handle" (a string)
@@ -578,7 +578,7 @@ class ChatBot(IChatLogic):
         person = self.db.get_person_from_handle(person_handle)
         return self.sa.death_place(person)
 
-    def get_person_event_list(self, person_handle: str) -> List[str]:
+    def get_person_event_list(self, person_handle: str) -> list[str]:
         """
         Get a list of event handles associated with a person,
         given the person handle. Use `get_event(event_handle)`
@@ -588,7 +588,7 @@ class ChatBot(IChatLogic):
         if obj:
             return [ref.ref for ref in obj.get_event_ref_list()]
 
-    def get_event(self, event_handle: str) -> Dict[str, Any]:
+    def get_event(self, event_handle: str) -> dict[str, Any]:
         """
         Given an event_handle, get the associated data dictionary.
         """
@@ -602,7 +602,7 @@ class ChatBot(IChatLogic):
         event = self.db.get_event_from_handle(event_handle)
         return place_displayer.display_event(self.db, event)
 
-    def get_child_in_families(self, person_handle: str) -> List[Dict[str, Any]]:
+    def get_child_in_families(self, person_handle: str) -> list[dict[str, Any]]:
         """
         Retrieve detailed information about all families where the given person
         is listed as a child.
@@ -637,7 +637,7 @@ class ChatBot(IChatLogic):
         # Handle the case of an empty search string
         if not search_terms:
             # Return a pattern that will not match anything
-            return re.compile(r'$^')
+            return re.compile(r"$^")
 
         # 2. Escape each term to treat special regex characters as literals.
         escaped_terms = [re.escape(term) for term in search_terms]
@@ -646,11 +646,11 @@ class ChatBot(IChatLogic):
         regex_or_pattern = "|".join(escaped_terms)
 
         # 4. Add word boundaries to the pattern and compile it.
-        final_pattern = re.compile(r'\b(?:' + regex_or_pattern + r')\b', re.IGNORECASE)
+        final_pattern = re.compile(r"\b(?:" + regex_or_pattern + r")\b", re.IGNORECASE)
 
         return final_pattern
 
-    def find_people_by_name(self, search_string: str) -> List[Dict[str, Any]]:
+    def find_people_by_name(self, search_string: str) -> list[dict[str, Any]]:
         """
         Searches the Gramps database for people whose primary or alternate names
         contain the given search string.
@@ -680,41 +680,41 @@ class ChatBot(IChatLogic):
                 fields_to_check = []
 
                 # Fields common to Name object (primary_name or alternate_name elements)
-                if hasattr(name_or_surname_obj, 'first_name'):
+                if hasattr(name_or_surname_obj, "first_name"):
                     fields_to_check.append(name_or_surname_obj.first_name)
                 # Corrected: 'prefix' and 'suffix' are properties of the
                 # Name object itself, not the Surname object.
-                if hasattr(name_or_surname_obj, 'prefix'):
+                if hasattr(name_or_surname_obj, "prefix"):
                     fields_to_check.append(name_or_surname_obj.prefix)
-                if hasattr(name_or_surname_obj, 'suffix'):
+                if hasattr(name_or_surname_obj, "suffix"):
                     fields_to_check.append(name_or_surname_obj.suffix)
-                if hasattr(name_or_surname_obj, 'title'):
+                if hasattr(name_or_surname_obj, "title"):
                     fields_to_check.append(name_or_surname_obj.title)
-                if hasattr(name_or_surname_obj, 'call'):
+                if hasattr(name_or_surname_obj, "call"):
                     fields_to_check.append(name_or_surname_obj.call)
-                if hasattr(name_or_surname_obj, 'nick'):
+                if hasattr(name_or_surname_obj, "nick"):
                     fields_to_check.append(name_or_surname_obj.nick)
-                if hasattr(name_or_surname_obj, 'famnick'):
+                if hasattr(name_or_surname_obj, "famnick"):
                     fields_to_check.append(name_or_surname_obj.famnick)
-                if hasattr(name_or_surname_obj, 'patronymic'):
+                if hasattr(name_or_surname_obj, "patronymic"):
                     fields_to_check.append(name_or_surname_obj.patronymic)
 
                 # Fields specific to Surname object (within surname_list)
-                if hasattr(name_or_surname_obj, 'surname'):
+                if hasattr(name_or_surname_obj, "surname"):
                     fields_to_check.append(name_or_surname_obj.surname)
                     # Note: Surname objects can also have their
                     # own 'prefix' and 'connector'
                     # which are separate from the 'prefix'
                     # of the main Name object.
-                    if hasattr(name_or_surname_obj, 'connector'):
+                    if hasattr(name_or_surname_obj, "connector"):
                         fields_to_check.append(name_or_surname_obj.connector)
 
                 for field_value in fields_to_check:
                     # Ensure field_value is a non-empty string before attempting search
                     if (
-                        isinstance(field_value, str) and
-                        field_value and
-                        search_pattern.search(field_value)
+                        isinstance(field_value, str)
+                        and field_value
+                        and search_pattern.search(field_value)
                     ):
                         return True
                 return False
@@ -725,7 +725,7 @@ class ChatBot(IChatLogic):
                     matched = True
 
                 # Surnames are in a list, iterate through each Surname object
-                if not matched and hasattr(person_obj.primary_name, 'surname_list'):
+                if not matched and hasattr(person_obj.primary_name, "surname_list"):
                     for surname_obj in person_obj.primary_name.surname_list:
                         if check_name_fields(surname_obj):
                             matched = True
@@ -733,9 +733,9 @@ class ChatBot(IChatLogic):
 
             # Check alternate name fields if not already matched
             if (
-                not matched and
-                hasattr(person_obj, 'alternate_names') and
-                person_obj.alternate_names
+                not matched
+                and hasattr(person_obj, "alternate_names")
+                and person_obj.alternate_names
             ):
                 for alt_name in person_obj.alternate_names:
                     if check_name_fields(alt_name):
@@ -743,12 +743,12 @@ class ChatBot(IChatLogic):
                         break
 
                     # Check surnames within alternate name
-                    if not matched and hasattr(alt_name, 'surname_list'):
+                    if not matched and hasattr(alt_name, "surname_list"):
                         for alt_surname_obj in alt_name.surname_list:
                             if check_name_fields(alt_surname_obj):
                                 matched = True
                                 break
-                        if matched:   # Break from outer alt_names loop if matched
+                        if matched:  # Break from outer alt_names loop if matched
                             break
 
             if matched:
@@ -756,18 +756,17 @@ class ChatBot(IChatLogic):
                 # self.db is assumed to be the database access object within
                 # the tool's class.
                 raw_data = dict(
-                    self.db._get_raw_person_from_id_data(person_obj.gramps_id))
+                    self.db._get_raw_person_from_id_data(person_obj.gramps_id)
+                )
                 desired_fields = {
-                    "handle":
-                    raw_data.get("handle"),
-                    "first_name":
-                    raw_data.get("primary_name", {}).get("first_name"),
-                    "surname":
-                    raw_data.get("primary_name", {}).
-                    get("surname_list", [{}])[0].get("surname"),
-                    "prefix":
-                    raw_data.get("primary_name", {}).
-                    get("surname_list", [{}])[0].get("prefix")
+                    "handle": raw_data.get("handle"),
+                    "first_name": raw_data.get("primary_name", {}).get("first_name"),
+                    "surname": raw_data.get("primary_name", {})
+                    .get("surname_list", [{}])[0]
+                    .get("surname"),
+                    "prefix": raw_data.get("primary_name", {})
+                    .get("surname_list", [{}])[0]
+                    .get("prefix"),
                 }
                 matching_people_raw_data.append(desired_fields)
 
