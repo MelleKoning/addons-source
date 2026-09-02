@@ -9,6 +9,74 @@ _CONFIG = config.register_manager("ChatWithTreeMCP")
 # Temporary in-memory cache for model lists fetched at settings-open time.
 # Not persisted to .ini; cleared/rebuilt per settings session.
 _MODEL_OPTIONS_CACHE: dict[str, list[str]] = {}
+# Flag set when any API-key setting changes; triggers model list reload.
+_MODEL_OPTIONS_CACHE_RELOAD_NEEDED: bool = True
+
+
+class ChatConfig:
+    """Config holder to prevent bare module-level globals for cache/reload state."""
+
+    def __init__(self):
+        self._model_options_cache: dict[str, list[str]] = {}
+        self._model_options_reload_needed: bool = True
+
+    def get_all_models(self) -> dict[str, list[str]]:
+        """Public interface for iteration over all cached provider/model lists."""
+        return self._model_options_cache.copy()
+
+    def fetch_model_lists(self):
+        import logging
+
+        if not self._model_options_reload_needed:
+            return
+        self._model_options_reload_needed = False
+        log = logging.getLogger("ChatWithTreeMCP")
+        for provider, cfg_key in {
+            "openrouter": "openrouter_api_key",
+            "openai": "openai_api_key",
+            "deepseek": "deepseek_api_key",
+            "moonshotai": "moonshotai_api_key",
+            "ollama": None,
+            "opencode": "opencode_api_key",
+        }.items():
+            url_val = _CONFIG.get("settings.model_url") or "http://localhost:11434"
+            key_val = _CONFIG.get(f"settings.{cfg_key}") if cfg_key else ""
+            if cfg_key and not key_val:
+                self._model_options_cache[provider] = []
+                log.warning(f"[models] provider={provider} skipped (no api_key)")
+                continue
+            try:
+                from llm_client import PROVIDER_REGISTRY, LLMClient
+
+                client = LLMClient()
+                reg = PROVIDER_REGISTRY.get(provider)
+                base_url = (
+                    reg.get("base_url")
+                    if reg
+                    else (url_val or "http://localhost:11434")
+                ) or "http://localhost:11434"
+                models_path = (
+                    reg.get("models_path", "/v1/models") if reg else "/v1/models"
+                )
+                url_val = base_url.rstrip("/") + models_path
+                endpoint = url_val
+                log.warning(
+                    f"[models] provider={provider} endpoint={endpoint} url={url_val} key_present={'yes' if key_val else 'no'}"
+                )
+                fetched = client.list_models(base_url, key_val)
+                self._model_options_cache[provider] = fetched
+                log.warning(
+                    f"[models] provider={provider} endpoint={endpoint} fetched={len(fetched)} url={base_url}"
+                )
+            except (TypeError, ValueError, KeyError) as exc:
+                self._model_options_cache[provider] = []
+                log.warning(f"[models] provider={provider} fetch failed: {exc}")
+
+
+# Module-level alias (backward compatible with existing references)
+_chat_config = ChatConfig()
+_MODEL_OPTIONS_CACHE = _chat_config._model_options_cache
+_MODEL_OPTIONS_CACHE_RELOAD_NEEDED = _chat_config._model_options_reload_needed
 _CONFIG.register("settings.model_name", "ollama/deepseek-r1:1.5b")
 _CONFIG.register("settings.model_url", "http://localhost:11434")
 _CONFIG.register("settings.loop_limit", 6)
@@ -102,6 +170,14 @@ def save_setting(key, value):
         )
     else:
         value = str(value) if value is not None else default
+    # Detect API-key changes to trigger model list reload
+    prev = load_setting(key)
+    if key.endswith("_api_key"):
+        prev_str = str(prev or "")
+        new_str = str(value or "")
+        if prev_str != new_str:
+            # Update instance flag directly (not module alias)
+            _chat_config._model_options_reload_needed = True
     _CONFIG.set("settings." + key, value)
     _CONFIG.save()
     _CONFIG.load()

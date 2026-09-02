@@ -375,12 +375,9 @@ class ChatBot(IChatLogic):
 
                 # Clean iteration over the tool call models
                 for tool_call in msg["tool_calls"]:
-                    args = tool_call["function"]["arguments"]
-                    args_str = args if isinstance(args, str) else json.dumps(args)
-
                     yield self._reply(
                         YieldType.TOOL_CALL,
-                        f" {tool_call['function']['name']}({args_str}) ",
+                        f" {tool_call['function']['name']} ",
                     )
                     self.execute_tool(tool_call)
 

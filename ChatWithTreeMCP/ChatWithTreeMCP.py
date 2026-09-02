@@ -480,8 +480,8 @@ class ChatWithTreeMCPClass(Gramplet):
         try:
             self.dialog, self.grid, self.entries = self._build_dialog_grid()
             # Fetch and cache model lists from providers with API keys set (once, then reuse)
-            if not ChatWithTreeConfig._MODEL_OPTIONS_CACHE:
-                self._fetch_and_cache_model_lists()
+            if not ChatWithTreeConfig._chat_config.get_all_models():
+                ChatWithTreeConfig._chat_config.fetch_model_lists()
             self._add_settings_rows()
             self.dialog.show_all()
             resp = self.dialog.run()
@@ -521,9 +521,10 @@ class ChatWithTreeMCPClass(Gramplet):
         gi.require_version("Gtk", "3.0")
         from gi.repository import Gtk
 
-        settings_items = list(ChatWithTreeConfig.SETTINGS_MAP.items())
         self.entries = {}
-        for i, (key, (label_text, default_val)) in enumerate(settings_items):
+        for i, (key, (label_text, default_val)) in enumerate(
+            ChatWithTreeConfig.SETTINGS_MAP.items()
+        ):
             lbl = Gtk.Label(label=label_text)
             lbl.set_halign(Gtk.Align.END)
             lbl.set_xalign(1)
@@ -588,6 +589,7 @@ class ChatWithTreeMCPClass(Gramplet):
 
                 log = logging.getLogger("ChatWithTreeMCP")
                 log.error("Failed to save setting")
+        # Reload flag is handled by ChatWithTreeConfig.save_setting()
 
     def _build_modeldropdown(self):
         import gi
@@ -603,7 +605,10 @@ class ChatWithTreeMCPClass(Gramplet):
 
     def _build_modeldropdown_options(self):
         options = []
-        for provider, models in ChatWithTreeConfig._MODEL_OPTIONS_CACHE.items():
+        for (
+            provider,
+            models,
+        ) in ChatWithTreeConfig._chat_config.get_all_models().items():
             for mid in models:
                 options.append(f"{provider}/{mid}")
         current_model = ChatWithTreeConfig.load_setting("model_name") or ""
@@ -612,61 +617,6 @@ class ChatWithTreeMCPClass(Gramplet):
         if not options and current_model:
             options = [current_model]
         return options
-
-    def _fetch_and_cache_model_lists(self):
-        import logging
-
-        for provider, cfg_key in {
-            "openrouter": "openrouter_api_key",
-            "openai": "openai_api_key",
-            "deepseek": "deepseek_api_key",
-            "moonshotai": "moonshotai_api_key",
-            "ollama": None,
-            "opencode": "opencode_api_key",
-        }.items():
-            url_val = (
-                ChatWithTreeConfig.load_setting("model_url") or "http://localhost:11434"
-            )
-            key_val = ChatWithTreeConfig.load_setting(cfg_key) if cfg_key else ""
-            if cfg_key and not key_val:
-                # Skip providers with missing API keys to avoid 401 errors
-                ChatWithTreeConfig._MODEL_OPTIONS_CACHE[provider] = []
-                import logging
-
-                log = logging.getLogger("ChatWithTreeMCP")
-                log.warning(f"[models] provider={provider} skipped (no api_key)")
-                continue
-            try:
-                from llm_client import PROVIDER_REGISTRY, LLMClient
-
-                client = LLMClient()
-                reg = PROVIDER_REGISTRY.get(provider)
-                base_url = (
-                    reg.get("base_url")
-                    if reg
-                    else (url_val or "http://localhost:11434")
-                ) or "http://localhost:11434"
-                models_path = (
-                    reg.get("models_path", "/v1/models") if reg else "/v1/models"
-                )
-                url_val = base_url.rstrip("/") + models_path
-                endpoint = url_val
-                log = logging.getLogger("ChatWithTreeMCP")
-                log.warning(
-                    f"[models] provider={provider} endpoint={endpoint} url={url_val} key_present={'yes' if key_val else 'no'}"
-                )
-                fetched = client.list_models(base_url, key_val)
-                ChatWithTreeConfig._MODEL_OPTIONS_CACHE[provider] = fetched
-                log = logging.getLogger("ChatWithTreeMCP")
-                log.warning(
-                    f"[models] provider={provider} endpoint={endpoint} fetched={len(fetched)} url={base_url}"
-                )
-            except (TypeError, ValueError, KeyError) as exc:
-                import logging
-
-                log = logging.getLogger("ChatWithTreeMCP")
-                log.warning(f"[models] provider={provider} fetch failed: {exc}")
-                ChatWithTreeConfig._MODEL_OPTIONS_CACHE[provider] = []
 
     def on_process_button_clicked(self, widget):
         """
