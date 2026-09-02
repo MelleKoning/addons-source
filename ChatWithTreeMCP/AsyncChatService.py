@@ -20,8 +20,8 @@
 import logging
 import queue
 import traceback
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from typing import Iterator, Optional
 
 from chatwithllm import ChatResponse, ReplyItem, YieldType
 from ChatWithTreeBot import ChatBot
@@ -39,12 +39,11 @@ class AsyncChatService:
 
         # Create a dedicated executor pool with ONLY ONE worker thread
         self.executor: ThreadPoolExecutor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="DBWorker"
+            max_workers=1, thread_name_prefix="DBWorker"
         )
 
         # Thread-safe Queue for results
-        self.result_queue: queue.Queue[Optional[ReplyItem]] = queue.Queue()
+        self.result_queue: queue.Queue[ReplyItem | None] = queue.Queue()
 
         # Status flag to check if the worker is busy
         self._is_processing = False
@@ -67,19 +66,21 @@ class AsyncChatService:
         """Called by the GTK thread to check if the job is running."""
         return self._is_processing
 
-    def get_next_result_from_queue(self) -> Optional[ReplyItem]:
+    def get_next_result_from_queue(self) -> ReplyItem | None:
         """Called by the GTK thread to pull a result without blocking."""
         try:
             return self.result_queue.get_nowait()
         except queue.Empty:
-            return None          # used as Sentinel for "no result available"
+            return None  # used as Sentinel for "no result available"
 
     def start_query(self, query: str) -> None:
         """
         Called by the GTK thread to submit the job to the worker.
         """
         if self._is_processing:
-            logging.warning("Query already running. Ignoring new query.")
+            logging.getLogger("ChatWithTreeMCP").warning(
+                "Query already running. Ignoring new query."
+            )
             return
 
         self._is_processing = True
@@ -100,7 +101,7 @@ class AsyncChatService:
             for reply in reply_iterator:
                 self.result_queue.put(reply)
 
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             tb = traceback.format_exc()
             error_text = f"ERROR: {type(e).__name__}: {e}\n{tb}"
             error_response = ChatResponse(text=error_text)

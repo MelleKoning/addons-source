@@ -221,8 +221,7 @@ class ChatBot(IChatLogic):
         else:
             yield self._reply(
                 YieldType.ERROR,
-                "Error: ensure to set model_name in ChatWithTreeConfig settings. "
-                "Or use the /setmodel <model_name> command.",
+                "Error: ensure to set model_name in ChatWithTreeConfig settings. ",
             )
 
     def _llm_complete(

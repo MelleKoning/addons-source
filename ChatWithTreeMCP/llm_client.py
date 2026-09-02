@@ -42,58 +42,76 @@ Both attribute and item access are supported, and missing fields return
 ``None`` (matching litellm) rather than raising, so the existing tool-loop
 code keeps working unchanged.
 """
+
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Default base URL of an OpenAI-compatible endpoint. Mirrors the previous
 # litellm default for the ``ollama/`` provider (Ollama's OpenAI shim lives at
 # http://localhost:11434/v1).
 DEFAULT_MODEL_URL = "http://localhost:11434"
 
-PROVIDER_REGISTRY: Dict[str, Dict[str, Any]] = {
+PROVIDER_REGISTRY: dict[str, dict[str, Any]] = {
     "ollama": {
-        "url": "http://localhost:11434/v1/chat/completions",
+        "base_url": "http://localhost:11434",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": None,
     },
     "openrouter": {
-        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "base_url": "https://openrouter.ai/api",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": "openrouter_api_key",
     },
     "moonshotai": {
-        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "base_url": "https://api.moonshot.ai",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": "moonshotai_api_key",
     },
     "opencode": {
-        "url": "https://code.openrouter.ai/v1/chat/completions",
+        "base_url": "https://opencode.ai/zen",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": "opencode_api_key",
     },
     "openai": {
-        "url": "https://api.openai.com/v1/chat/completions",
+        "base_url": "https://api.openai.com",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": "openai_api_key",
     },
     "deepseek": {
-        "url": "https://api.deepseek.com/chat/completions",
+        "base_url": "https://api.deepseek.com",
+        "chat_path": "/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": "deepseek_api_key",
     },
     "gemini": {
-        "url": (
-            "https://generativelanguage.googleapis.com"
-            "/v1beta/openai/chat/completions"
-        ),
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "chat_path": "/chat/completions",
+        "models_path": "/models",
         "key_settings": "gemini_api_key",
     },
     "anthropic": {
-        "url": "https://api.anthropic.com/v1/messages",
+        "base_url": "https://api.anthropic.com",
+        "chat_path": "/v1/messages",
+        "models_path": "/v1/models",
         "key_settings": "anthropic_api_key",
     },
     "groq": {
-        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "base_url": "https://api.groq.com/openai",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": "groq_api_key",
     },
     "mistral": {
-        "url": "https://api.mistral.ai/v1/chat/completions",
+        "base_url": "https://api.mistral.ai",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
         "key_settings": "mistral_api_key",
     },
 }
@@ -122,7 +140,9 @@ def resolve_provider(model_name: str) -> tuple:
         stripped = model_name
     if provider and provider in PROVIDER_REGISTRY:
         entry = PROVIDER_REGISTRY[provider]
-        url = entry["url"]
+        url = (entry.get("base_url") or entry.get("url", "")).rstrip("/") + entry.get(
+            "chat_path", "/v1/chat/completions"
+        )
         return url, None, stripped
     # Fallback: confine custom model_url to local ollama / custom
     # (no hosted provider override)
@@ -150,7 +170,7 @@ def _endpoint_url(model_url: str) -> str:
 class Message:
     """Dict-backed message supporting both attribute and item access."""
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: dict[str, Any]):
         self._data = data
 
     def __getattr__(self, name: str) -> Any:
@@ -161,7 +181,7 @@ class Message:
     def __getitem__(self, key: str) -> Any:
         return self._data[key]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialise back to the raw dict (echoed into chat history)."""
         return self._data
 
@@ -169,7 +189,7 @@ class Message:
 class Choice:
     """Wraps a single ``choices[]`` entry."""
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: dict[str, Any]):
         self._data = data
 
     @property
@@ -183,11 +203,11 @@ class Choice:
 class CompletionResponse:
     """Wraps the full chat/completions JSON response."""
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: dict[str, Any]):
         self._data = data
 
     @property
-    def choices(self) -> List[Choice]:
+    def choices(self) -> list[Choice]:
         return [Choice(c) for c in self._data.get("choices", [])]
 
     def __getattr__(self, name: str) -> Any:
@@ -199,8 +219,8 @@ class LLMClient:
 
     def __init__(
         self,
-        model_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        model_url: str | None = None,
+        api_key: str | None = None,
         timeout: float = 120.0,
     ):
         # Uses the URL/key explicitly provided (resolved by ChatWithTreeBot
@@ -212,13 +232,13 @@ class LLMClient:
     def completion(
         self,
         model: str,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[str] = None,
-        seed: Optional[int] = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+        seed: int | None = None,
         stream: bool = False,
-        model_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        model_url: str | None = None,
+        api_key: str | None = None,
     ) -> CompletionResponse:
         """POST a chat-completion request and return a ``CompletionResponse``.
 
@@ -226,7 +246,7 @@ class LLMClient:
         can switch models at runtime, as the previous litellm path did.
         """
         url = _endpoint_url(model_url if model_url is not None else self.model_url)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": _strip_provider_prefix(model),
             "messages": messages,
             "stream": stream,
@@ -265,8 +285,7 @@ class LLMClient:
                 f"model={_strip_provider_prefix(model)}]"
             )
             raise RuntimeError(
-                f"LLM endpoint returned HTTP {exc.code}: "
-                f"{detail or exc.reason} {diag}"
+                f"LLM endpoint returned HTTP {exc.code}: {detail or exc.reason} {diag}"
             ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
@@ -276,9 +295,65 @@ class LLMClient:
         data = self._accumulate_sse(raw) if stream else json.loads(raw)
         return CompletionResponse(data)
 
+    def list_models(
+        self, model_url: str | None = None, api_key: str | None = None
+    ) -> list[str]:
+        """Query the provider endpoint for available models.
+
+        Tries ``/v1/models`` (OpenAI-style) then ``/models`` (OpenRouter-style)
+        by deriving the endpoint from the client's ``model_url``.
+        Returns a list of model id strings (e.g. ``["gpt-4", ...]``).
+        """
+        base = model_url if model_url is not None else self.model_url
+        key = api_key if api_key is not None else self.api_key
+        candidates = []
+        if "/v1/chat/completions" in base:
+            candidates.append(base.replace("/v1/chat/completions", "/v1/models"))
+            candidates.append(base.replace("/v1/chat/completions", "/models"))
+        else:
+            candidates.append(base.rstrip("/") + "/v1/models")
+            candidates.append(base.rstrip("/") + "/models")
+        seen: set = set()
+        unique_candidates = []
+        for c in candidates:
+            if c not in seen:
+                seen.add(c)
+                unique_candidates.append(c)
+        for url in unique_candidates:
+            try:
+                req = urllib.request.Request(url, method="GET")
+                req.add_header(
+                    "User-Agent",
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+                )
+                if key:
+                    req.add_header("Authorization", f"Bearer {key}")
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    raw = resp.read().decode("utf-8", "replace")
+                data = json.loads(raw)
+                import logging
+
+                log = logging.getLogger("ChatWithTreeMCP")
+                models = data.get("data", [])
+                log.warning(f"[models] endpoint={url} fetched={len(models)}")
+                return [m.get("id", m) for m in models if isinstance(m, dict)]
+            except (
+                urllib.error.HTTPError,
+                urllib.error.URLError,
+                TypeError,
+                ValueError,
+                KeyError,
+            ) as exc:
+                import logging
+
+                log = logging.getLogger("ChatWithTreeMCP")
+                log.warning(f"[models] endpoint={url} failed: {exc}")
+                continue
+        return []
+
     # -- streaming helpers -------------------------------------------------
     @staticmethod
-    def _accumulate_sse(raw: str) -> Dict[str, Any]:
+    def _accumulate_sse(raw: str) -> dict[str, Any]:
         """Reconstruct one response dict from an SSE ``text/event-stream``.
 
         Accumulates ``content`` deltas and merges incremental ``tool_calls``
@@ -286,18 +361,18 @@ class LLMClient:
         ``function.arguments`` fragments). Returns a Chat-Completions-shaped
         dict whose first choice message carries the full content/tool_calls.
         """
-        content_parts: List[str] = []
+        content_parts: list[str] = []
         # index -> {"index", "id", "type", "function": {"name", "arguments"}}
-        tool_calls: Dict[int, Dict[str, Any]] = {}
-        finish_reason: Optional[str] = None
-        model_name: Optional[str] = None
+        tool_calls: dict[int, dict[str, Any]] = {}
+        finish_reason: str | None = None
+        model_name: str | None = None
         role: str = "assistant"
 
         for line in raw.splitlines():
             line = line.strip()
             if not line or not line.startswith("data:"):
                 continue
-            payload = line[len("data:"):].strip()
+            payload = line[len("data:") :].strip()
             if payload == "[DONE]":
                 break
             try:
@@ -337,7 +412,7 @@ class LLMClient:
             if choices[0].get("finish_reason") is not None:
                 finish_reason = choices[0]["finish_reason"]
 
-        message: Dict[str, Any] = {
+        message: dict[str, Any] = {
             "role": role,
             "content": "".join(content_parts),
         }

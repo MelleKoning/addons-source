@@ -2,9 +2,13 @@
 # Both ChatWithTreeBot.py (backend) and ChatWithTreeMCP.py (GUI) import this.
 # Standard plugin architecture: single manager (register_manager) only.
 
+
 from gramps.gen.config import config
 
 _CONFIG = config.register_manager("ChatWithTreeMCP")
+# Temporary in-memory cache for model lists fetched at settings-open time.
+# Not persisted to .ini; cleared/rebuilt per settings session.
+_MODEL_OPTIONS_CACHE: dict[str, list[str]] = {}
 _CONFIG.register("settings.model_name", "ollama/deepseek-r1:1.5b")
 _CONFIG.register("settings.model_url", "http://localhost:11434")
 _CONFIG.register("settings.loop_limit", 6)
@@ -22,18 +26,18 @@ _CONFIG.load()
 
 
 SETTINGS_MAP = {
-    "model_name":     ("Model (with prefix, e.g. openrouter/...)", "ollama/gemma4"),
-    "model_url":      ("Ollama URL (local endpoint override)", "http://localhost:11434"),
-    "loop_limit":     ("Loop limit", 6),
-    "openrouter_api_key":     ("OpenRouter API Key", ""),
-    "opencode_api_key":       ("OpenCode API Key", ""),
-    "openai_api_key":         ("OpenAI API Key", ""),
-    "deepseek_api_key":       ("DeepSeek API Key", ""),
-    "moonshotai_api_key":     ("MoonshotAI API Key", ""),
-    "gemini_api_key":         ("Gemini API Key", ""),
-    "anthropic_api_key":      ("Anthropic API Key", ""),
-    "groq_api_key":           ("Groq API Key", ""),
-    "mistral_api_key":        ("Mistral API Key", ""),
+    "model_name": ("Model (with prefix, e.g. openrouter/...)", "ollama/gemma4"),
+    "model_url": ("Ollama URL (local endpoint override)", "http://localhost:11434"),
+    "loop_limit": ("Loop limit", 6),
+    "openrouter_api_key": ("OpenRouter API Key", ""),
+    "opencode_api_key": ("OpenCode API Key", ""),
+    "openai_api_key": ("OpenAI API Key", ""),
+    "deepseek_api_key": ("DeepSeek API Key", ""),
+    "moonshotai_api_key": ("MoonshotAI API Key", ""),
+    "gemini_api_key": ("Gemini API Key", ""),
+    "anthropic_api_key": ("Anthropic API Key", ""),
+    "groq_api_key": ("Groq API Key", ""),
+    "mistral_api_key": ("Mistral API Key", ""),
 }
 
 
@@ -42,7 +46,8 @@ def _cfg(key, fallback=""):
         v = _CONFIG.get("settings." + key)
         if v is not None:
             return v
-    except Exception:
+    except (KeyError, ValueError):
+        # Config registry isolation: return fallback silently
         pass
     return fallback
 
@@ -65,8 +70,9 @@ def verify_settings_registered():
     for key in SETTINGS_MAP:
         prefixed = "settings." + key
         v = _CONFIG.get(prefixed)
-        assert v is not None or SETTINGS_MAP[key][1] is not None, \
+        assert v is not None or SETTINGS_MAP[key][1] is not None, (
             f"Setting {key} not registered in manager"
+        )
 
 
 def load_key_for_provider(provider):
@@ -77,22 +83,23 @@ def load_key_for_provider(provider):
 
 
 def load_setting(key):
-    label, default = SETTINGS_MAP[key]
+    _label, default = SETTINGS_MAP[key]
     _CONFIG.load()
     val = _cfg(key, default)
     # Gramps suppresses LOG.info; LOG.warn is visible in Gramps logs
-    import logging
-    log = logging.getLogger("ChatWithTreeConfig")
-    log.warning(f"[ChatWithTreeConfig] load_setting({key}) = {val!r}")
+    # Intentionally not logging all settings to keep logs clean
     return val
 
 
 def save_setting(key, value):
-    label, default = SETTINGS_MAP[key]
+    _label, default = SETTINGS_MAP[key]
     # loop_limit stored as int in manager but saved as string for manager
     if key == "loop_limit":
-        value = int(value) if str(value).isdigit() else \
-            (default if isinstance(default, int) else 6)
+        value = (
+            int(value)
+            if str(value).isdigit()
+            else (default if isinstance(default, int) else 6)
+        )
     else:
         value = str(value) if value is not None else default
     _CONFIG.set("settings." + key, value)

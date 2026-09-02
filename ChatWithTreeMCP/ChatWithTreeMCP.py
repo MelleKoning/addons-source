@@ -20,7 +20,6 @@
 # ChatWithTree.py
 import logging
 import re
-from typing import Optional
 
 import ChatWithTreeConfig
 import gi
@@ -84,7 +83,7 @@ class ChatWithTreeMCPClass(Gramplet):
         # Show all widgets.
         self.vbox.show()
         # db change signal
-        self.dbstate.connect('database-changed', self.change_db)
+        self.dbstate.connect("database-changed", self.change_db)
         self.chat_service = None
 
     def change_db(self, db):
@@ -101,13 +100,14 @@ class ChatWithTreeMCPClass(Gramplet):
                     dbChangeMessage = ReplyItem(
                         type=YieldType.PARTIAL,
                         data=ChatResponse(
-                            text=_(f"Database change detected {active_db_name}.")))
+                            text=_("Database change detected %s.") % active_db_name
+                        ),
+                    )
                     self._add_message_row(dbChangeMessage)
                     self.chat_service = AsyncChatService(active_db_name)
-            except Exception as e:
-                # Catch the likely TypeError or any other startup error
+            except (TypeError, ValueError, KeyError) as e:
                 LOG.error(f"Failed to initialize AsyncChatService: {e}")
-                self.chat_service = None   # Ensure it's None on failure
+                self.chat_service = None  # Ensure it's None on failure
                 return
         else:
             LOG.error("Database is closed. Chatbot logic is reset.")
@@ -164,9 +164,13 @@ class ChatWithTreeMCPClass(Gramplet):
         # Add the initial message to the list box.
         initMessage = ReplyItem(
             type=YieldType.PARTIAL,
-            data=ChatResponse(text=_(
-                "Chat with Tree initialized. \
-                Type /help for help.")))
+            data=ChatResponse(
+                text=_(
+                    "Chat with Tree initialized. \
+                Type /help for help."
+                )
+            ),
+        )
         self._add_message_row(initMessage)
 
         return vbox
@@ -214,11 +218,12 @@ class ChatWithTreeMCPClass(Gramplet):
         }
 
         """
-        css_provider.load_from_data(css.encode('utf-8'))
+        css_provider.load_from_data(css.encode("utf-8"))
         screen = Gdk.Screen.get_default()
         context = Gtk.StyleContext()
-        context.add_provider_for_screen(screen, css_provider,
-                                        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        context.add_provider_for_screen(
+            screen, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         # We need to set up a style context on the chat listbox
         style_context = self.chat_listbox.get_style_context()
@@ -230,7 +235,7 @@ class ChatWithTreeMCPClass(Gramplet):
         without nesting tags.
         """
         # 1. Normalize and Escape (Must be first)
-        text = text.replace('\u202f', ' ').replace('\u00a0', ' ')
+        text = text.replace("\u202f", " ").replace("\u00a0", " ")
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         placeholders = {}
@@ -255,35 +260,45 @@ class ChatWithTreeMCPClass(Gramplet):
                     linkref = (
                         f'<a href="{link_uri}">'
                         f'<span font_family="monospace">{entity.handle}</span>'
-                        '</a>')
+                        "</a>"
+                    )
                     placeholders[handle_key] = linkref
                     linked_handles.add(entity.handle)
 
                 if entity.name in text:
                     text = text.replace(entity.name, name_key)
                     placeholders[name_key] = (
-                         f'<a href="{link_uri}"><b>{entity.name}</b></a>'
+                        f'<a href="{link_uri}"><b>{entity.name}</b></a>'
                     )
                     linked_handles.add(entity.handle)
 
         # 2. Render Markdown (Bold, Italics, etc.)
         # Because we use placeholders like ##NAME_0##, Markdown regex won't
         # find names/handles and accidentally break them.
-        text = re.sub(r'^####\s+(.*?)$', r'\n<b>\1</b>', text, flags=re.MULTILINE)
-        text = re.sub(r'^###\s+(.*?)$',
-                      r'\n<b><big>\1</big></b>', text, flags=re.MULTILINE)
-        text = re.sub(r'^##\s+(.*?)$',
-                      r'\n<b><span size="large">\1</span></b>',
-                      text, flags=re.MULTILINE)
-        text = re.sub(r'^#\s+(.*?)$',
-                      r'\n<b><span size="x-large">\1</span></b>',
-                      text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-        text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
-        text = re.sub(r'`(.*?)`',
-                      r'<span font_family="monospace" background="#eeeeee">\1</span>',
-                      text)
-        text = re.sub(r'^(\s*)[\-\*]\s+', r'\1• ', text, flags=re.MULTILINE)
+        text = re.sub(r"^####\s+(.*?)$", r"\n<b>\1</b>", text, flags=re.MULTILINE)
+        text = re.sub(
+            r"^###\s+(.*?)$", r"\n<b><big>\1</big></b>", text, flags=re.MULTILINE
+        )
+        text = re.sub(
+            r"^##\s+(.*?)$",
+            r'\n<b><span size="large">\1</span></b>',
+            text,
+            flags=re.MULTILINE,
+        )
+        text = re.sub(
+            r"^#\s+(.*?)$",
+            r'\n<b><span size="x-large">\1</span></b>',
+            text,
+            flags=re.MULTILINE,
+        )
+        text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+        text = re.sub(r"\*(.*?)\*", r"<i>\1</i>", text)
+        text = re.sub(
+            r"`(.*?)`",
+            r'<span font_family="monospace" background="#eeeeee">\1</span>',
+            text,
+        )
+        text = re.sub(r"^(\s*)[\-\*]\s+", r"\1• ", text, flags=re.MULTILINE)
 
         # 3. Final Pass: Swap placeholders back for real Pango Links
         for key, pango_html in placeholders.items():
@@ -318,7 +333,7 @@ class ChatWithTreeMCPClass(Gramplet):
         if reply.type in (YieldType.USER, YieldType.PARTIAL, YieldType.FINAL):
             message_label.set_markup(
                 self._markdown_to_pango(reply.data.text, reply.data.metadata)
-                )
+            )
             if reply.data.has_links:
                 message_label.connect("activate-link", self.on_handle_clicked)
         else:
@@ -377,7 +392,7 @@ class ChatWithTreeMCPClass(Gramplet):
                     # Open the Family Editor
                     EditFamily(self.dbstate, self.uistate, [], family)
 
-        except Exception as e:
+        except (TypeError, ValueError, KeyError) as e:
             # We use LOG.error as per your existing pattern
             LOG.error(f"Failed to open editor for {uri}: {e}")
 
@@ -409,7 +424,7 @@ class ChatWithTreeMCPClass(Gramplet):
         try:
             # Non-blocking attempt to get the next result from the worker thread's queue.
             # This result will be ReplyItem or None (the sentinel).
-            reply: Optional[ReplyItem] = self.chat_service.get_next_result_from_queue()
+            reply: ReplyItem | None = self.chat_service.get_next_result_from_queue()
 
             if reply is None:
                 # Queue is empty. Check the status of the background job.
@@ -428,13 +443,12 @@ class ChatWithTreeMCPClass(Gramplet):
             elif reply.type == YieldType.TOOL_CALL:
                 # Append to an existing label for streaming effect, or create a new one
                 if self.current_tool_call_label is None:
-                    self.current_tool_call_label = self._add_message_row(
-                        reply
-                    )
-                else:   # This is a subsequent tool call. Update the existing label.
+                    self.current_tool_call_label = self._add_message_row(reply)
+                else:  # This is a subsequent tool call. Update the existing label.
                     existing_text = self.current_tool_call_label.get_text()
                     self.current_tool_call_label.set_text(
-                        existing_text + " " + reply.data.text)
+                        existing_text + " " + reply.data.text
+                    )
 
             elif reply.type == YieldType.FINAL or reply.type == YieldType.ERROR:
                 # Final reply from the chatbot.
@@ -444,108 +458,215 @@ class ChatWithTreeMCPClass(Gramplet):
             # we immediately check the queue again for the next item.
             return GLib.SOURCE_CONTINUE
 
-        except Exception as e:
+        except (TypeError, ValueError, KeyError) as e:
             # Handle unexpected errors on the main GTK thread
             error_message = f"Critical UI Error: {type(e).__name__} - {e}"
-            LOG.error(error_message, exc_info=True)
+            LOG.exception(error_message)
             exceptionReply = ReplyItem(
                 type=YieldType.ERROR,
-                data=ChatResponse(text=f"Application Error. {error_message}"))
+                data=ChatResponse(text=f"Application Error. {error_message}"),
+            )
             self._add_message_row(exceptionReply)
 
-            return GLib.SOURCE_REMOVE    # Stop the process on error
+            return GLib.SOURCE_REMOVE  # Stop the process on error
 
     def on_settings_button_clicked(self, widget):
         try:
             self._show_settings_dialog()
-        except Exception as e:
+        except (TypeError, ValueError, KeyError) as e:
             LOG.error(f"Settings dialog failed: {e}")
 
     def _show_settings_dialog(self):
         try:
-            import gi
-            gi.require_version("Gtk", "3.0")
-            from gi.repository import Gtk
-            bot_cfg = ChatWithTreeConfig._CONFIG
-            settings_items = list(ChatWithTreeConfig.SETTINGS_MAP.items())
+            self.dialog, self.grid, self.entries = self._build_dialog_grid()
+            # Fetch and cache model lists from providers with API keys set (once, then reuse)
+            if not ChatWithTreeConfig._MODEL_OPTIONS_CACHE:
+                self._fetch_and_cache_model_lists()
+            self._add_settings_rows()
+            self.dialog.show_all()
+            resp = self.dialog.run()
+            if resp == Gtk.ResponseType.OK:
+                self._persist_settings()
+            self.dialog.destroy()
+        except (TypeError, ValueError, KeyError) as e:
+            import logging
 
-            dialog = Gtk.Dialog(title="ChatWithTreeMCP Settings",
-                                buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                                         Gtk.STOCK_OK, Gtk.ResponseType.OK))
-            dialog.set_default_size(650, 500)
-            box = dialog.get_content_area()
-            box.set_spacing(6)
-            entries = {}
-            grid = Gtk.Grid(column_spacing=6, row_spacing=6)
-            entries = {}
-            for i, (key, (label_text, default_val)) in enumerate(settings_items):
-                lbl = Gtk.Label(label=label_text)
-                lbl.set_halign(Gtk.Align.END)
-                lbl.set_xalign(1)
-                # Dropdown for loop_limit; Entry for others
-                if key == "loop_limit":
-                    combo = Gtk.ComboBoxText()
-                    for val in ["6", "8", "10", "12"]:
-                        combo.append_text(val)
+            logging.getLogger(".").error(f"[Settings] Dialog failed: {e}")
+
+    def _build_dialog_grid(self):
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+
+        dialog = Gtk.Dialog(
+            title="ChatWithTreeMCP Settings",
+            buttons=(
+                Gtk.STOCK_CANCEL,
+                Gtk.ResponseType.CANCEL,
+                Gtk.STOCK_OK,
+                Gtk.ResponseType.OK,
+            ),
+        )
+        dialog.set_default_size(650, 500)
+        box = dialog.get_content_area()
+        box.set_spacing(6)
+        grid = Gtk.Grid(column_spacing=6, row_spacing=6)
+        box.pack_start(grid, False, False, 0)
+        return dialog, grid, {}
+
+    def _add_settings_rows(self):
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+
+        settings_items = list(ChatWithTreeConfig.SETTINGS_MAP.items())
+        self.entries = {}
+        for i, (key, (label_text, default_val)) in enumerate(settings_items):
+            lbl = Gtk.Label(label=label_text)
+            lbl.set_halign(Gtk.Align.END)
+            lbl.set_xalign(1)
+            if key == "loop_limit":
+                combo = Gtk.ComboBoxText()
+                for val in ["6", "8", "10", "12"]:
+                    combo.append_text(val)
+                combo.set_active(0)
+                current = (
+                    str(ChatWithTreeConfig.load_setting(key))
+                    if ChatWithTreeConfig.load_setting(key) is not None
+                    else str(default_val)
+                )
+                for idx, val in enumerate(["6", "8", "10", "12"]):
+                    if val == str(current):
+                        combo.set_active(idx)
+                self.entries[key] = combo
+                self.grid.attach(lbl, 0, i, 1, 1)
+                self.grid.attach(combo, 1, i, 1, 1)
+            else:
+                if key == "model_name":
+                    combo = self._build_modeldropdown()
+                    current_model = ChatWithTreeConfig.load_setting("model_name") or ""
                     combo.set_active(0)
-                    current = (str(
-                        ChatWithTreeConfig.load_setting(key)
-                    ) if (
-                        ChatWithTreeConfig.load_setting(key)
-                    ) is not None else str(default_val))
-                    for idx, val in enumerate(["6", "8", "10", "12"]):
-                        if val == str(current):
+                    for idx, val in enumerate(self._build_modeldropdown_options()):
+                        if val == current_model:
                             combo.set_active(idx)
-                    entries[key] = combo
-                    grid.attach(lbl, 0, i, 1, 1)
-                    grid.attach(combo, 1, i, 1, 1)
+                    self.entries[key] = combo
+                    self.grid.attach(lbl, 0, i, 1, 1)
+                    self.grid.attach(combo, 1, i, 1, 1)
                 else:
                     ent = Gtk.Entry()
                     ent.set_hexpand(True)
-                    current = (str(
-                        ChatWithTreeConfig.load_setting(key)
-                    ) if ChatWithTreeConfig.load_setting(key) is not None else "")
+                    current = (
+                        str(ChatWithTreeConfig.load_setting(key))
+                        if ChatWithTreeConfig.load_setting(key) is not None
+                        else ""
+                    )
                     ent.set_text(str(current))
-                    entries[key] = ent
-                    grid.attach(lbl, 0, i, 1, 1)
-                    grid.attach(ent, 1, i, 1, 1)
-                    # Mask API key fields; add show/hide toggle
+                    self.entries[key] = ent
+                    self.grid.attach(lbl, 0, i, 1, 1)
+                    self.grid.attach(ent, 1, i, 1, 1)
                     if key.endswith("_api_key"):
                         ent.set_visibility(False)
                         show_btn = Gtk.CheckButton(label="Show")
                         show_btn.connect(
                             "toggled",
-                            lambda btn, e=ent: e.set_visibility(
-                                btn.get_active()
-                            ),
+                            lambda btn, e=ent: e.set_visibility(btn.get_active()),
                         )
-                        grid.attach(show_btn, 2, i, 1, 1)
-            box.pack_start(grid, False, False, 0)
-            box.show_all()
-            resp = dialog.run()
-            if resp == Gtk.ResponseType.OK:
-                try:
-                    if bot_cfg is not None:
-                        for k, ent in entries.items():
-                            if isinstance(ent, Gtk.ComboBoxText):
-                                val = ent.get_active_text()
-                            else:
-                                val = ent.get_text()
-                            try:
-                                ChatWithTreeConfig.save_setting(k, val)
-                            except Exception:
-                                pass
-                    # Shared module handles persistence
-                    # (manager + file fallback via _cfg)
-                    # Variables removed; backend reads _cfg() live
-                except Exception as e:
-                    LOG.error(f"[Settings] Save failed: {e}")
-            dialog.destroy()
-        except Exception as e:
-            import logging
-            import traceback
-            logging.getLogger(".").error(f"[Settings] Dialog failed: {e}")
-            traceback.print_exc()
+                        self.grid.attach(show_btn, 2, i, 1, 1)
+
+    def _persist_settings(self):
+        for k, ent in self.entries.items():
+            if isinstance(ent, Gtk.ComboBoxText):
+                val = ent.get_active_text()
+            else:
+                val = ent.get_text()
+            try:
+                ChatWithTreeConfig.save_setting(k, val)
+            except (TypeError, ValueError, KeyError):
+                import logging
+
+                log = logging.getLogger("ChatWithTreeMCP")
+                log.error("Failed to save setting")
+
+    def _build_modeldropdown(self):
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+
+        combo = Gtk.ComboBoxText()
+        combo.set_entry_text_column(0)
+        for val in self._build_modeldropdown_options():
+            combo.append_text(val)
+        return combo
+
+    def _build_modeldropdown_options(self):
+        options = []
+        for provider, models in ChatWithTreeConfig._MODEL_OPTIONS_CACHE.items():
+            for mid in models:
+                options.append(f"{provider}/{mid}")
+        current_model = ChatWithTreeConfig.load_setting("model_name") or ""
+        if current_model and current_model not in options:
+            options.insert(0, current_model)
+        if not options and current_model:
+            options = [current_model]
+        return options
+
+    def _fetch_and_cache_model_lists(self):
+        import logging
+
+        for provider, cfg_key in {
+            "openrouter": "openrouter_api_key",
+            "openai": "openai_api_key",
+            "deepseek": "deepseek_api_key",
+            "moonshotai": "moonshotai_api_key",
+            "ollama": None,
+            "opencode": "opencode_api_key",
+        }.items():
+            url_val = (
+                ChatWithTreeConfig.load_setting("model_url") or "http://localhost:11434"
+            )
+            key_val = ChatWithTreeConfig.load_setting(cfg_key) if cfg_key else ""
+            if cfg_key and not key_val:
+                # Skip providers with missing API keys to avoid 401 errors
+                ChatWithTreeConfig._MODEL_OPTIONS_CACHE[provider] = []
+                import logging
+
+                log = logging.getLogger("ChatWithTreeMCP")
+                log.warning(f"[models] provider={provider} skipped (no api_key)")
+                continue
+            try:
+                from llm_client import PROVIDER_REGISTRY, LLMClient
+
+                client = LLMClient()
+                reg = PROVIDER_REGISTRY.get(provider)
+                base_url = (
+                    reg.get("base_url")
+                    if reg
+                    else (url_val or "http://localhost:11434")
+                ) or "http://localhost:11434"
+                models_path = (
+                    reg.get("models_path", "/v1/models") if reg else "/v1/models"
+                )
+                url_val = base_url.rstrip("/") + models_path
+                endpoint = url_val
+                log = logging.getLogger("ChatWithTreeMCP")
+                log.warning(
+                    f"[models] provider={provider} endpoint={endpoint} url={url_val} key_present={'yes' if key_val else 'no'}"
+                )
+                fetched = client.list_models(base_url, key_val)
+                ChatWithTreeConfig._MODEL_OPTIONS_CACHE[provider] = fetched
+                log = logging.getLogger("ChatWithTreeMCP")
+                log.warning(
+                    f"[models] provider={provider} endpoint={endpoint} fetched={len(fetched)} url={base_url}"
+                )
+            except (TypeError, ValueError, KeyError) as exc:
+                import logging
+
+                log = logging.getLogger("ChatWithTreeMCP")
+                log.warning(f"[models] provider={provider} fetch failed: {exc}")
+                ChatWithTreeConfig._MODEL_OPTIONS_CACHE[provider] = []
 
     def on_process_button_clicked(self, widget):
         """
@@ -557,17 +678,23 @@ class ChatWithTreeMCPClass(Gramplet):
         if self.chat_service is None:
             notInitializedMessage = ReplyItem(
                 type=YieldType.FINAL,
-                data=ChatResponse(text=_(
-                  "The ChatWithTree addon is not yet initialized. \
-                    Please reload Gramps or select a database.")))
+                data=ChatResponse(
+                    text=_(
+                        "The ChatWithTree addon is not yet initialized. \
+                    Please reload Gramps or select a database."
+                    )
+                ),
+            )
             self._add_message_row(notInitializedMessage)
             return
 
         if self.chat_service.is_processing():
             processingMessage = ReplyItem(
                 type=YieldType.PARTIAL,
-                data=ChatResponse(text=_(
-                  "The chatbot is currently processing a query. Please wait.")))
+                data=ChatResponse(
+                    text=_("The chatbot is currently processing a query. Please wait.")
+                ),
+            )
             self._add_message_row(processingMessage)
             return
         # Normal handling of user input
@@ -575,8 +702,8 @@ class ChatWithTreeMCPClass(Gramplet):
         self.input_entry.set_text("")
         if user_input.strip():
             userMessage = ReplyItem(
-                type=YieldType.USER,
-                data=ChatResponse(text=f"{user_input}"))
+                type=YieldType.USER, data=ChatResponse(text=f"{user_input}")
+            )
             self._add_message_row(userMessage)
             # Now, schedule the reply-getting logic to run when the main loop is idle.
             # Run the asynchronous processing for this single query
@@ -589,12 +716,14 @@ class ChatWithTreeMCPClass(Gramplet):
                 # consumes the yielded results from the worker thread
                 GLib.idle_add(self._check_queue_for_reply)
 
-            except Exception as e:
+            except (TypeError, ValueError, KeyError) as e:
                 LOG.error(f"Error running async query: {e}")
                 exceptionMsg = ReplyItem(
                     type=YieldType.ERROR,
                     data=ChatResponse(
-                        text=_("An error occurred while processing your query.")))
+                        text=_("An error occurred while processing your query.")
+                    ),
+                )
                 self._add_message_row(exceptionMsg)
                 return
 
@@ -602,7 +731,6 @@ class ChatWithTreeMCPClass(Gramplet):
         """
         This method is called when the Gramplet needs to update its content.
         """
-        pass
 
     def destroy(self):
         """
