@@ -11,14 +11,14 @@ def test_configman_roundtrip():
         from gramps.gen.config import config
 
         mgr = config.register_manager("ChatWithTreeMCP")
-        mgr.register("ChatWithTreeMCP.test_key", "default")
+        mgr.register("settings.test_key", "default")
         mgr.load()
-        mgr.set("ChatWithTreeMCP.test_key", "stored_value")
+        mgr.set("settings.test_key", "stored_value")
         mgr.save()
         # Reload to verify persistence
         mgr2 = config.register_manager("ChatWithTreeMCP")
         mgr2.load()
-        assert mgr2.get("ChatWithTreeMCP.test_key") == "stored_value"
+        assert mgr2.get("settings.test_key") == "stored_value"
     except (AssertionError, KeyError) as exc:
         # Fallback: verify _CONFIG mechanism exists without full gramps
         import ChatWithTreeConfig as cfg_mod
