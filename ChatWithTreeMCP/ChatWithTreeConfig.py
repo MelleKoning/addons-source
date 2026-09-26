@@ -38,11 +38,16 @@ class ChatConfig:
             "moonshotai": "moonshotai_api_key",
             "ollama": None,
             "opencode": "opencode_api_key",
+            "sambanova": "sambanova_api_key",
+            "gemini": "gemini_api_key",
+            "anthropic": "anthropic_api_key",
+            "groq": "groq_api_key",
+            "mistral": "mistral_api_key",
         }.items():
             url_val = _CONFIG.get("settings.model_url") or "http://localhost:11434"
             key_val = _CONFIG.get(f"settings.{cfg_key}") if cfg_key else ""
             if cfg_key and not key_val:
-                self._model_options_cache[provider] = []
+                self._model_options_cache[provider] = sorted([])
                 log.warning(f"[models] provider={provider} skipped (no api_key)")
                 continue
             try:
@@ -65,13 +70,13 @@ class ChatConfig:
                     f"url={url_val} key_present={'yes' if key_val else 'no'}"
                 )
                 fetched = client.list_models(base_url, key_val)
-                self._model_options_cache[provider] = fetched
+                self._model_options_cache[provider] = sorted(fetched)
                 log.warning(
                     f"[models] provider={provider} endpoint={endpoint} "
                     f"fetched={len(fetched)} url={base_url}"
                 )
             except (TypeError, ValueError, KeyError) as exc:
-                self._model_options_cache[provider] = []
+                self._model_options_cache[provider] = sorted([])
                 log.warning(f"[models] provider={provider} fetch failed: {exc}")
 
 
@@ -91,6 +96,7 @@ _CONFIG.register("settings.gemini_api_key", "")
 _CONFIG.register("settings.anthropic_api_key", "")
 _CONFIG.register("settings.groq_api_key", "")
 _CONFIG.register("settings.mistral_api_key", "")
+_CONFIG.register("settings.sambanova_api_key", "")
 
 _CONFIG.load()
 
@@ -108,6 +114,7 @@ SETTINGS_MAP = {
     "anthropic_api_key": ("Anthropic API Key", ""),
     "groq_api_key": ("Groq API Key", ""),
     "mistral_api_key": ("Mistral API Key", ""),
+    "sambanova_api_key": ("SambaNova API Key", ""),
 }
 
 
@@ -133,6 +140,7 @@ PROVIDER_KEY_MAP = {
     "anthropic": "anthropic_api_key",
     "groq": "groq_api_key",
     "mistral": "mistral_api_key",
+    "sambanova": "sambanova_api_key",
 }
 
 

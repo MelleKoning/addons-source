@@ -38,6 +38,28 @@ def test_load_key_for_provider():
     assert cfg_mod.load_key_for_provider("nonexistent") is None
 
 
+def test_provider_registry_key_map_consistency():
+    import ChatWithTreeConfig as cfg_mod
+    from llm_client import PROVIDER_REGISTRY
+
+    # Every registry provider must exist in KEY_MAP
+    for provider in PROVIDER_REGISTRY:
+        assert provider in cfg_mod.PROVIDER_KEY_MAP, (
+            f"Provider {provider} missing from PROVIDER_KEY_MAP"
+        )
+    # Every KEY_MAP entry must exist in registry
+    for provider in cfg_mod.PROVIDER_KEY_MAP:
+        assert provider in PROVIDER_REGISTRY, (
+            f"Provider {provider} missing from PROVIDER_REGISTRY"
+        )
+    # Every non-None KEY_MAP value must exist in SETTINGS_MAP
+    for provider, cfg_key in cfg_mod.PROVIDER_KEY_MAP.items():
+        if cfg_key is not None:
+            assert cfg_key in cfg_mod.SETTINGS_MAP, (
+                f"Provider {provider} maps to unknown setting {cfg_key}"
+            )
+
+
 def test_roundtrip_all_settings():
     import ChatWithTreeConfig as cfg_mod
 

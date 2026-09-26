@@ -114,6 +114,12 @@ PROVIDER_REGISTRY: dict[str, dict[str, Any]] = {
         "models_path": "/v1/models",
         "key_settings": "mistral_api_key",
     },
+    "sambanova": {
+        "base_url": "https://api.sambanova.ai/",
+        "chat_path": "/v1/chat/completions",
+        "models_path": "/v1/models",
+        "key_settings": "sambanova_api_key",
+    },
 }
 
 

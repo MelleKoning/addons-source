@@ -480,7 +480,10 @@ class ChatWithTreeMCPClass(Gramplet):
         try:
             self.dialog, self.grid, self.entries = self._build_dialog_grid()
             # Fetch and cache model lists from providers with API keys set
-            if not ChatWithTreeConfig._chat_config.get_all_models():
+            if (
+                not ChatWithTreeConfig._chat_config.get_all_models()
+                or ChatWithTreeConfig._chat_config._model_options_reload_needed
+            ):
                 ChatWithTreeConfig._chat_config.fetch_model_lists()
             self._add_settings_rows()
             self.dialog.show_all()
