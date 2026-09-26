@@ -18,8 +18,8 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
 import inspect
-import typing
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 def python_type_to_json_type(python_type: type) -> str:
@@ -34,15 +34,13 @@ def python_type_to_json_type(python_type: type) -> str:
         return "boolean"
     elif python_type in [dict]:
         return "object"
-    elif python_type in [list, typing.List]:
+    elif python_type in [list, list]:
         return "array"
     else:
         return "string"  # default fallback
 
 
-def make_tool_schema(
-    func: Callable, description: Optional[str] = None
-) -> Dict[str, Any]:
+def make_tool_schema(func: Callable, description: str | None = None) -> dict[str, Any]:
     """Build an MCP-shaped tool definition from a Python function.
 
     Returns the MCP tool schema:
@@ -60,8 +58,8 @@ def make_tool_schema(
     sig = inspect.signature(func)
     doc = description or func.__doc__ or ""
 
-    properties: Dict[str, Dict[str, str]] = {}
-    required: List[str] = []
+    properties: dict[str, dict[str, str]] = {}
+    required: list[str] = []
 
     for name, param in sig.parameters.items():
         param_type = (
@@ -72,7 +70,7 @@ def make_tool_schema(
         if param.default == inspect.Parameter.empty:
             required.append(name)
 
-    schema: Dict[str, Any] = {
+    schema: dict[str, Any] = {
         "name": func.__name__,
         "description": doc.strip(),
     }
@@ -92,7 +90,7 @@ def make_tool_schema(
     return schema
 
 
-def to_openai_tools(mcp_schemas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def to_openai_tools(mcp_schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert MCP-shaped tool schemas to the OpenAI / litellm ``tools`` format.
 
     Used when sending tool definitions to an OpenAI-compatible LLM endpoint.
@@ -100,16 +98,18 @@ def to_openai_tools(mcp_schemas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     reproducing the exact shape the original ``function_to_litellm_definition``
     produced.
     """
-    openai_tools: List[Dict[str, Any]] = []
+    openai_tools: list[dict[str, Any]] = []
     for s in mcp_schemas:
-        func_def: Dict[str, Any] = {
+        func_def: dict[str, Any] = {
             "name": s["name"],
             "description": s.get("description", ""),
         }
         if "inputSchema" in s:
             func_def["parameters"] = s["inputSchema"]
-        openai_tools.append({
-            "type": "function",
-            "function": func_def,
-        })
+        openai_tools.append(
+            {
+                "type": "function",
+                "function": func_def,
+            }
+        )
     return openai_tools

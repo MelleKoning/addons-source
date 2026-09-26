@@ -1,10 +1,14 @@
 """Integration: save via config -> read via config -> value matches."""
-import os, sys
+
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def test_integrated_config_roundtrip():
     import ChatWithTreeConfig as cfg_mod
+
     # Save a test value
     cfg_mod.save_setting("model_name", "integration_test_model")
     # Read back via load_setting (should reload .ini)

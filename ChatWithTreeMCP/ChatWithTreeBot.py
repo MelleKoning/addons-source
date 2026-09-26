@@ -27,7 +27,7 @@ from typing import Any, Dict, Iterator, List, Optional, Pattern, Tuple
 
 from chatwithllm import (ChatResponse, EntityMetadata, IChatLogic, ReplyItem,
                          YieldType)
-from ChatWithTreeConfig import load_setting, load_key_for_provider
+from ChatWithTreeConfig import load_key_for_provider, load_setting
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 from gramps.gen.db.utils import open_database
 from gramps.gen.display.name import displayer as name_displayer
@@ -254,7 +254,12 @@ class ChatBot(IChatLogic):
             if provider and provider in PROVIDER_REGISTRY else {}
         )
         cfg_key = registry_entry.get("key_settings")
-        key = load_setting(cfg_key.replace("settings.", "")) if cfg_key and cfg_key.startswith("settings.") else load_key_for_provider(provider) if cfg_key else None
+        if cfg_key and cfg_key.startswith("settings."):
+            key = load_setting(cfg_key.replace("settings.", ""))
+        elif cfg_key:
+            key = load_key_for_provider(provider)
+        else:
+            key = None
         if not key and provider:
             # Fallback to provider-specific settings key directly
             key = load_key_for_provider(provider)

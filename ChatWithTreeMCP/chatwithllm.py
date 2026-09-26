@@ -19,9 +19,10 @@
 #
 import abc
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Iterator, List, NamedTuple
+from typing import NamedTuple
 
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 
@@ -33,11 +34,11 @@ _ = glocale.get_addon_translator(__file__).gettext
 
 
 class YieldType(Enum):
-    USER = auto()        # Prompt from the user
-    PARTIAL = auto()     # Streaming chunks from the LLM
-    TOOL_CALL = auto()   # Indicator of a gramps tool call
-    FINAL = auto()       # The complete response
-    ERROR = auto()       # For structured error reporting
+    USER = auto()  # Prompt from the user
+    PARTIAL = auto()  # Streaming chunks from the LLM
+    TOOL_CALL = auto()  # Indicator of a gramps tool call
+    FINAL = auto()  # The complete response
+    ERROR = auto()  # For structured error reporting
 
 
 @dataclass
@@ -52,8 +53,9 @@ class ChatResponse:
     """
     The primary data container for all chatbot yields.
     """
+
     text: str
-    metadata: List[EntityMetadata] = field(default_factory=list)
+    metadata: list[EntityMetadata] = field(default_factory=list)
 
     # Helper property for partial and final yields
     @property
@@ -77,12 +79,12 @@ class IChatLogic(abc.ABC):
     Abstract base class (interface) for chat logic.
     Any class that processes a message and returns a reply must implement this.
     """
+
     @abc.abstractmethod
     def get_reply(self, message: str) -> Iterator[ReplyItem]:
         """
         Processes a user message and returns a reply string.
         """
-        pass
 
 
 class ChatWithLLM(IChatLogic):
@@ -90,6 +92,7 @@ class ChatWithLLM(IChatLogic):
     This class contains the actual logic for processing the chat messages.
     It implements the IChatLogic interface.
     """
+
     def __init__(self):
         """
         Constructor for the chat logic class.
@@ -97,13 +100,11 @@ class ChatWithLLM(IChatLogic):
         resources needed to generate a reply.
         """
         # For now, it's just a simple text reversal.
-        pass
 
     def open_database_for_chat(self) -> None:
         """
         Opens the database for chat operations.
         """
-        pass
 
     def get_reply(self, message: str) -> Iterator[ReplyItem]:
         """
@@ -114,11 +115,13 @@ class ChatWithLLM(IChatLogic):
         yield text as it's streamed from the LLM or as tool calls complete.
         """
         if message == "exit":
-            quit()
+            import sys
+
+            sys.exit()
 
         reversed_message = _("Tree: '{}'").format(message[::-1])
 
         for char in reversed_message:
             yield (YieldType.PARTIAL, ChatResponse(text=char))
-            time.sleep(0.05)    # Simulate a slight delay, like a real-time stream
+            time.sleep(0.05)  # Simulate a slight delay, like a real-time stream
         yield (YieldType.FINAL, ChatResponse(text=reversed_message))
